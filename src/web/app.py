@@ -392,6 +392,97 @@ class WebApp:
                 logger.error(f"更新威胁通知设置失败: {str(e)}")
                 return jsonify({'success': False, 'message': str(e)}), 500
         
+        @self.app.route('/api/settings/ml')
+        @login_required
+        def api_get_ml_settings():
+            """获取ML设置"""
+            try:
+                ml_available = True
+                try:
+                    from ..ml.risk_enhancer import MLRiskEnhancer
+                    from ..ml.behavior_detector import MLBehaviorDetector
+                except ImportError:
+                    ml_available = False
+                
+                risk_model_trained = False
+                behavior_model_trained = False
+                
+                if ml_available:
+                    risk_meta = self.database.get_ml_model_metadata('risk_classifier')
+                    behavior_meta = self.database.get_ml_model_metadata('behavior_anomaly')
+                    risk_model_trained = risk_meta is not None
+                    behavior_model_trained = behavior_meta is not None
+                
+                return jsonify({
+                    'success': True,
+                    'settings': {
+                        'enable_ml_risk': self.config.get_bool('ENABLE_ML_RISK', True),
+                        'enable_ml_behavior': self.config.get_bool('ENABLE_ML_BEHAVIOR', True),
+                        'ml_risk_model': self.config.get('ML_RISK_MODEL', 'sklearn_rf'),
+                        'ml_behavior_model': self.config.get('ML_BEHAVIOR_MODEL', 'sklearn_if'),
+                        'ml_library_available': ml_available,
+                        'risk_model_trained': risk_model_trained,
+                        'behavior_model_trained': behavior_model_trained
+                    }
+                })
+            except Exception as e:
+                logger.error(f"获取ML设置失败: {str(e)}")
+                return jsonify({'success': False, 'message': str(e)}), 500
+        
+        @self.app.route('/api/settings/ml', methods=['POST'])
+        @login_required
+        def api_save_ml_settings():
+            """保存ML设置"""
+            try:
+                data = request.get_json()
+                settings = data.get('settings', {})
+                
+                config_file = self.config.config_file
+                
+                config_lines = []
+                if os.path.exists(config_file):
+                    with open(config_file, 'r', encoding='utf-8') as f:
+                        config_lines = f.readlines()
+                
+                settings_to_save = {
+                    'ENABLE_ML_RISK': str(settings.get('enable_ml_risk', True)).lower(),
+                    'ENABLE_ML_BEHAVIOR': str(settings.get('enable_ml_behavior', True)).lower(),
+                    'ML_RISK_MODEL': settings.get('ml_risk_model', 'sklearn_rf'),
+                    'ML_BEHAVIOR_MODEL': settings.get('ml_behavior_model', 'sklearn_if')
+                }
+                
+                existing_keys = set()
+                new_lines = []
+                for line in config_lines:
+                    stripped = line.strip()
+                    key_found = False
+                    for key in settings_to_save:
+                        if stripped.startswith(f'{key}='):
+                            new_lines.append(f'{key}={settings_to_save[key]}\n')
+                            existing_keys.add(key)
+                            key_found = True
+                            break
+                    if not key_found:
+                        new_lines.append(line)
+                
+                for key, value in settings_to_save.items():
+                    if key not in existing_keys:
+                        new_lines.append(f'{key}={value}\n')
+                
+                with open(config_file, 'w', encoding='utf-8') as f:
+                    f.writelines(new_lines)
+                
+                self.config._load_config()
+                
+                logger.info(f"ML设置已更新: {settings_to_save}")
+                return jsonify({
+                    'success': True,
+                    'message': 'ML设置已保存，重启服务后生效'
+                })
+            except Exception as e:
+                logger.error(f"保存ML设置失败: {str(e)}")
+                return jsonify({'success': False, 'message': str(e)}), 500
+        
         # ==================== 系统状态API ====================
         
         @self.app.route('/api/system/status')

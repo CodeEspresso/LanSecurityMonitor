@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>威胁记录 - 局域网安全监控系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/style.css" rel="stylesheet">
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="bi bi-shield-lock"></i> 局域网安全监控
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">
+                            <i class="bi bi-speedometer2"></i> 仪表盘
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/devices">
+                            <i class="bi bi-pc-display"></i> 设备管理
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/threats">
+                            <i class="bi bi-exclamation-triangle"></i> 威胁记录
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/settings">
+                            <i class="bi bi-gear"></i> 系统设置
+                        </a>
+                    </li>
+                </ul>
+                <ul class="navbar-nav">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-person-circle"></i> <span id="username">Admin</span>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item" href="#" onclick="logout()"><i class="bi bi-box-arrow-right"></i> 登出</a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主内容 -->
+    <div class="container-fluid mt-4">
+        <!-- 页面标题 -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <h2><i class="bi bi-exclamation-triangle"></i> 威胁记录</h2>
+                <p class="text-muted">查看和管理安全威胁记录</p>
+            </div>
+        </div>
+
+        <!-- 统计卡片 -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card bg-danger text-white">
+                    <div class="card-body">
+                        <h6>严重威胁</h6>
+                        <h2 id="critical-count">0</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-warning text-white">
+                    <div class="card-body">
+                        <h6>高危威胁</h6>
+                        <h2 id="high-count">0</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-info text-white">
+                    <div class="card-body">
+                        <h6>中等威胁</h6>
+                        <h2 id="medium-count">0</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-success text-white">
+                    <div class="card-body">
+                        <h6>低危威胁</h6>
+                        <h2 id="low-count">0</h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 筛选 -->
+        <div class="row mb-3">
+            <div class="col-md-3">
+                <select class="form-select" id="severity-filter">
+                    <option value="">所有严重程度</option>
+                    <option value="critical">严重</option>
+                    <option value="high">高</option>
+                    <option value="medium">中</option>
+                    <option value="low">低</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <select class="form-select" id="type-filter">
+                    <option value="">所有类型</option>
+                    <option value="unknown_device">未知设备</option>
+                    <option value="behavior_anomaly">行为异常</option>
+                    <option value="suspicious_port">可疑端口</option>
+                    <option value="bandwidth_anomaly">带宽异常</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-primary w-100" onclick="refreshThreats()">
+                    <i class="bi bi-arrow-clockwise"></i> 刷新
+                </button>
+            </div>
+            <div class="col-md-4 text-end">
+                <button class="btn btn-danger" onclick="confirmClearThreats()">
+                    <i class="bi bi-trash"></i> 清除所有
+                </button>
+            </div>
+        </div>
+
+        <!-- 威胁列表 -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>时间</th>
+                                        <th>类型</th>
+                                        <th>严重程度</th>
+                                        <th>设备IP</th>
+                                        <th>描述</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="threats-table">
+                                    <tr>
+                                        <td colspan="6" class="text-center">
+                                            <div class="loading"></div> 加载中...
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <!-- 分页 -->
+                        <nav>
+                            <ul class="pagination justify-content-center" id="pagination">
+                                <!-- 分页将在这里显示 -->
+                            </ul>
+                        </nav>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 威胁详情模态框 -->
+    <div class="modal fade" id="threat-modal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-exclamation-triangle"></i> 威胁详情
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="threat-details">
+                    <!-- 威胁详情将在这里显示 -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 清除威胁确认模态框 -->
+    <div class="modal fade" id="clear-threats-modal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-exclamation-triangle text-danger"></i> 确认清除
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>确定要清除所有威胁记录吗？</p>
+                    <p class="text-muted">此操作无法撤销。</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-danger" onclick="clearThreats()">
+                        <i class="bi bi-trash"></i> 确认清除
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 页脚 -->
+    <footer class="text-center mt-5 mb-3 text-muted">
+        <small>© 2024 局域网安全监控系统 | Powered by Flask & Bootstrap</small>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/app.js"></script>
+    <script>
+        let currentPage = 1;
+        const perPage = 20;
+
+        // 页面加载完成后执行
+        document.addEventListener('DOMContentLoaded', function() {
+            loadUserInfo();
+            loadThreatStats();
+            loadThreats();
+            
+            // 添加筛选事件监听
+            document.getElementById('severity-filter').addEventListener('change', function() {
+                currentPage = 1;
+                loadThreats();
+            });
+            document.getElementById('type-filter').addEventListener('change', function() {
+                currentPage = 1;
+                loadThreats();
+            });
+        });
+
+        // 加载威胁统计
+        async function loadThreatStats() {
+            try {
+                const response = await apiRequest('/api/threats/stats');
+                
+                if (response && response.success) {
+                    const stats = response.stats;
+                    document.getElementById('critical-count').textContent = stats.by_severity.critical || 0;
+                    document.getElementById('high-count').textContent = stats.by_severity.high || 0;
+                    document.getElementById('medium-count').textContent = stats.by_severity.medium || 0;
+                    document.getElementById('low-count').textContent = stats.by_severity.low || 0;
+                }
+            } catch (error) {
+                console.error('加载威胁统计失败:', error);
+            }
+        }
+
+        // 加载威胁列表
+        async function loadThreats() {
+            try {
+                const severity = document.getElementById('severity-filter').value;
+                const type = document.getElementById('type-filter').value;
+                
+                let url = `/api/threats?page=${currentPage}&per_page=${perPage}`;
+                if (severity) url += `&severity=${severity}`;
+                if (type) url += `&type=${type}`;
+                
+                const response = await apiRequest(url);
+                
+                if (response && response.success) {
+                    displayThreats(response.threats);
+                    displayPagination(response.pagination);
+                }
+            } catch (error) {
+                console.error('加载威胁列表失败:', error);
+                document.getElementById('threats-table').innerHTML = `
+                    <tr>
+                        <td colspan="6" class="text-center text-danger">
+                            <i class="bi bi-exclamation-triangle"></i> 加载失败
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+
+        // 显示威胁列表
+        function displayThreats(threats) {
+            const tbody = document.getElementById('threats-table');
+            
+            if (!threats || threats.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="6" class="text-center text-muted">
+                            <div class="empty-state">
+                                <i class="bi bi-shield-check"></i>
+                                <p>暂无威胁记录</p>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+            
+            tbody.innerHTML = threats.map(threat => `
+                <tr>
+                    <td>${formatDateTime(threat.timestamp)}</td>
+                    <td>${formatThreatType(threat.type)}</td>
+                    <td><span class="badge badge-${threat.severity}">${formatSeverity(threat.severity)}</span></td>
+                    <td><code>${threat.device_ip || 'N/A'}</code></td>
+                    <td>${threat.description || 'N/A'}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" onclick="showThreatDetails(${threat.id})">
+                            <i class="bi bi-info-circle"></i> 详情
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // 显示分页
+        function displayPagination(pagination) {
+            const paginationEl = document.getElementById('pagination');
+            
+            if (pagination.pages <= 1) {
+                paginationEl.innerHTML = '';
+                return;
+            }
+            
+            let html = '';
+            
+            // 上一页
+            html += `
+                <li class="page-item ${pagination.page === 1 ? 'disabled' : ''}">
+                    <a class="page-link" href="#" onclick="goToPage(${pagination.page - 1})">上一页</a>
+                </li>
+            `;
+            
+            // 页码
+            for (let i = 1; i <= pagination.pages; i++) {
+                if (i === 1 || i === pagination.pages || (i >= pagination.page - 2 && i <= pagination.page + 2)) {
+                    html += `
+                        <li class="page-item ${i === pagination.page ? 'active' : ''}">
+                            <a class="page-link" href="#" onclick="goToPage(${i})">${i}</a>
+                        </li>
+                    `;
+                } else if (i === pagination.page - 3 || i === pagination.page + 3) {
+                    html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+                }
+            }
+            
+            // 下一页
+            html += `
+                <li class="page-item ${pagination.page === pagination.pages ? 'disabled' : ''}">
+                    <a class="page-link" href="#" onclick="goToPage(${pagination.page + 1})">下一页</a>
+                </li>
+            `;
+            
+            paginationEl.innerHTML = html;
+        }
+
+        // 跳转到指定页
+        function goToPage(page) {
+            currentPage = page;
+            loadThreats();
+        }
+
+        // 显示威胁详情
+        async function showThreatDetails(threatId) {
+            try {
+                const response = await apiRequest(`/api/threats/${threatId}`);
+                
+                if (response && response.success && response.threat) {
+                    const threat = response.threat;
+                    const modalBody = document.getElementById('threat-details');
+                    
+                    const severityClass = {
+                        'critical': 'bg-danger',
+                        'high': 'bg-warning',
+                        'medium': 'bg-info',
+                        'low': 'bg-success'
+                    };
+                    
+                    modalBody.innerHTML = `
+                        <div class="row">
+                            <div class="col-md-6">
+                                <p><strong><i class="bi bi-calendar"></i> 检测时间：</strong></p>
+                                <p>${formatDateTime(threat.timestamp)}</p>
+                            </div>
+                            <div class="col-md-6">
+                                <p><strong><i class="bi bi-shield-exclamation"></i> 严重程度：</strong></p>
+                                <p><span class="badge ${severityClass[threat.severity] || 'bg-secondary'}">${formatSeverity(threat.severity)}</span></p>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <p><strong><i class="bi bi-pc"></i> 设备IP：</strong></p>
+                                <p><code>${threat.device_ip || 'N/A'}</code></p>
+                            </div>
+                            <div class="col-md-6">
+                                <p><strong><i class="bi bi-hdd"></i> 设备MAC：</strong></p>
+                                <p><code>${threat.device_mac || 'N/A'}</code></p>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="row">
+                            <div class="col-12">
+                                <p><strong><i class="bi bi-tag"></i> 威胁类型：</strong></p>
+                                <p>${formatThreatType(threat.type)}</p>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="row">
+                            <div class="col-12">
+                                <p><strong><i class="bi bi-text-paragraph"></i> 威胁描述：</strong></p>
+                                <p>${threat.description || '无描述'}</p>
+                            </div>
+                        </div>
+                        ${threat.details ? `
+                        <hr>
+                        <div class="row">
+                            <div class="col-12">
+                                <p><strong><i class="bi bi-info-circle"></i> 详细信息：</strong></p>
+                                <pre class="bg-light p-3 rounded">${threat.details}</pre>
+                            </div>
+                        </div>
+                        ` : ''}
+                    `;
+                    
+                    const modal = new bootstrap.Modal(document.getElementById('threat-modal'));
+                    modal.show();
+                } else {
+                    showNotification(response?.message || '获取威胁详情失败', 'danger');
+                }
+            } catch (error) {
+                console.error('获取威胁详情失败:', error);
+                showNotification('获取威胁详情失败', 'danger');
+            }
+        }
+
+        // 刷新威胁列表
+        function refreshThreats() {
+            loadThreatStats();
+            loadThreats();
+            showNotification('威胁列表已刷新', 'success');
+        }
+
+        // 确认清除威胁
+        function confirmClearThreats() {
+            const modal = new bootstrap.Modal(document.getElementById('clear-threats-modal'));
+            modal.show();
+        }
+
+        // 清除所有威胁记录
+        async function clearThreats() {
+            try {
+                const response = await apiRequest('/api/threats/clear', { method: 'POST' });
+                
+                if (response && response.success) {
+                    bootstrap.Modal.getInstance(document.getElementById('clear-threats-modal')).hide();
+                    showNotification('所有威胁记录已清除', 'success');
+                    loadThreatStats();
+                    loadThreats();
+                } else {
+                    showNotification(response?.message || '清除失败', 'danger');
+                }
+            } catch (error) {
+                console.error('清除威胁记录失败:', error);
+                showNotification('清除威胁记录失败', 'danger');
+            }
+        }
+
+        // 格式化威胁类型
+        function formatThreatType(type) {
+            const typeMap = {
+                'unknown_device': '未知设备',
+                'behavior_anomaly': '行为异常',
+                'suspicious_port': '可疑端口',
+                'bandwidth_anomaly': '带宽异常',
+                'nas_external_access': 'NAS外网访问'
+            };
+            return typeMap[type] || type;
+        }
+    </script>
+</body>
+</html>

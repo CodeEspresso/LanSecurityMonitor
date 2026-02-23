@@ -1,0 +1,31 @@
+# 网络扫描
+scapy>=2.5.0
+python-nmap>=0.7.1
+
+# 网络请求
+requests>=2.31.0
+aiohttp>=3.9.0
+
+# 数据处理
+pandas>=2.0.0
+numpy>=1.24.0
+
+# 日志和配置
+python-dotenv>=1.0.0
+pyyaml>=6.0
+
+# 数据库（可选，用于存储历史记录）
+# sqlite3 已内置在Python 3.x中，无需安装
+
+# 其他工具
+ipaddress
+netaddr>=0.9.0
+mac-vendor-lookup>=0.1.12
+
+# 加密库（用于配置文件加密）
+cryptography>=40.0.0
+
+# Web界面
+flask>=3.0.0
+flask-cors>=4.0.0
+flask-login>=0.6.3

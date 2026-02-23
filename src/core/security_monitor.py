@@ -1,0 +1,437 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+安全监控核心类
+"""
+
+import time
+import logging
+from typing import Dict, List, Any
+from datetime import datetime
+
+from ..monitors.network_scanner import NetworkScanner
+from ..monitors.threat_detector import ThreatDetector
+from ..monitors.device_analyzer import DeviceAnalyzer
+from ..monitors.nas_monitor import NASMonitor
+from ..monitors.behavior_analyzer import BehaviorAnalyzer
+from ..monitors.bandwidth_monitor import BandwidthMonitor
+from ..notifiers.bark_notifier import BarkNotifier
+from ..utils.database import Database
+from ..utils.metrics_exporter import MetricsExporter
+from ..utils.ikuai_api import IKuaiAPI
+
+
+class SecurityMonitor:
+    """安全监控核心类"""
+    
+    def __init__(self, config, secure_config=None):
+        self.config = config
+        self.secure_config = secure_config
+        self.logger = logging.getLogger('LanSecurityMonitor')
+        
+        # 初始化组件
+        self.network_scanner = NetworkScanner(config)
+        self.database = Database(config)
+        self.threat_detector = ThreatDetector(config, self.database)
+        self.device_analyzer = DeviceAnalyzer(config)
+        self.nas_monitor = NASMonitor(config)
+        self.bark_notifier = BarkNotifier(config, secure_config)
+        self.behavior_analyzer = BehaviorAnalyzer(config, self.database)
+        self.bandwidth_monitor = BandwidthMonitor(config)
+        self.metrics_exporter = MetricsExporter(config, self.database)
+        self.ikuai_api = IKuaiAPI(config, secure_config)
+        
+        # 状态存储
+        self.known_devices = {}
+        self.alert_history = []
+    
+    def initialize(self):
+        """初始化监控系统"""
+        self.logger.info("初始化监控系统...")
+        
+        # 检查是否为首次运行
+        is_first_run = self.database.is_first_run()
+        
+        if is_first_run:
+            self.logger.info("=" * 60)
+            self.logger.info("🎉 检测到首次运行（学习期）")
+            self.logger.info("=" * 60)
+            self.logger.info("系统将自动调整通知策略以避免通知爆炸")
+            self.logger.info("⚠️  学习期安全策略：")
+            self.logger.info("   ✅ 严重威胁通知: 保持开启（high/critical级别）")
+            self.logger.info("   ⏸️  中等威胁通知: 暂时关闭（避免误报）")
+            self.logger.info("   ⏸️  新设备通知: 暂时关闭")
+            self.logger.info("   ⏸️  行为分析: 暂时关闭")
+            self.logger.info("   ⏸️  首次出现告警: 暂时关闭")
+            self.logger.info("")
+            self.logger.info("📚 学习期要求：")
+            self.logger.info("   • 行为观察数据时间范围 >= 24小时")
+            self.logger.info("   • 有足够观察数据的设备 >= 设备总数的50%")
+            self.logger.info("=" * 60)
+            
+            # 首次运行时，自动调整通知策略
+            self._adjust_notification_strategy_for_first_run()
+        
+        # 加载已知设备
+        self.known_devices = self.database.load_known_devices()
+        self.logger.info(f"已加载 {len(self.known_devices)} 个已知设备")
+        
+        # 初始化网络扫描器
+        self.network_scanner.initialize()
+        
+        # 初始化威胁检测器
+        self.threat_detector.initialize()
+        
+        # 初始化NAS监控器
+        self.nas_monitor.initialize()
+        
+        # 初始化行为分析器
+        self.behavior_analyzer.initialize()
+        
+        # 初始化带宽监控器
+        self.bandwidth_monitor.initialize()
+        
+        # 初始化指标导出器
+        self.metrics_exporter.initialize()
+        
+        # 初始化爱快路由器API
+        self.ikuai_api.initialize()
+        
+        self.logger.info("监控系统初始化完成")
+    
+    def run_security_check(self):
+        """执行安全检查"""
+        check_start_time = time.time()
+        self.logger.info("开始安全检查...")
+        
+        try:
+            # 1. 扫描局域网设备
+            self.logger.info("步骤1: 扫描局域网设备...")
+            current_devices = self.network_scanner.scan_network()
+            self.logger.info(f"发现 {len(current_devices)} 个设备")
+            
+            # 2. 检测新设备和离线设备
+            self.logger.info("步骤2: 检测设备变化...")
+            new_devices, offline_devices = self._detect_device_changes(current_devices)
+            
+            if new_devices:
+                self.logger.warning(f"发现 {len(new_devices)} 个新设备")
+                self._handle_new_devices(new_devices)
+            
+            if offline_devices:
+                self.logger.info(f"发现 {len(offline_devices)} 个设备离线")
+            
+            # 3. 威胁检测
+            self.logger.info("步骤3: 执行威胁检测...")
+            threats = self.threat_detector.detect_threats(current_devices, self.known_devices)
+            
+            if threats:
+                self.logger.warning(f"发现 {len(threats)} 个潜在威胁")
+                self._handle_threats(threats)
+            
+            # 4. 深度分析可疑设备
+            self.logger.info("步骤4: 深度分析可疑设备...")
+            suspicious_devices = [t['device'] for t in threats if t.get('severity') == 'high']
+            
+            if suspicious_devices:
+                analysis_results = self.device_analyzer.analyze_devices(suspicious_devices)
+                self._handle_analysis_results(analysis_results)
+            
+            # 5. NAS设备监控
+            self.logger.info("步骤5: NAS设备监控...")
+            nas_anomalies = self.nas_monitor.monitor_nas_devices(current_devices)
+            
+            if nas_anomalies:
+                self.logger.warning(f"发现 {len(nas_anomalies)} 个NAS异常")
+                for anomaly in nas_anomalies:
+                    self._handle_threats([anomaly])
+            
+            # 6. 设备行为分析
+            self.logger.info("步骤6: 设备行为分析...")
+            behavior_anomalies = self.behavior_analyzer.analyze_device_behavior(current_devices)
+            
+            if behavior_anomalies:
+                self.logger.warning(f"发现 {len(behavior_anomalies)} 个行为异常")
+                for anomaly in behavior_anomalies:
+                    self._handle_threats([anomaly])
+            
+            # 7. 带宽使用监控
+            self.logger.info("步骤7: 带宽使用监控...")
+            bandwidth_anomalies = self.bandwidth_monitor.monitor_bandwidth(current_devices)
+            
+            if bandwidth_anomalies:
+                self.logger.warning(f"发现 {len(bandwidth_anomalies)} 个带宽异常")
+                for anomaly in bandwidth_anomalies:
+                    self._handle_threats([anomaly])
+            
+            # 8. 更新设备状态
+            self.logger.info("步骤8: 更新设备状态...")
+            self._update_device_status(current_devices)
+            
+            # 9. 检查是否应该退出首次运行模式
+            self._check_and_exit_first_run_mode()
+            
+            # 10. 保存检查结果
+            self.database.save_check_result({
+                'timestamp': datetime.now().isoformat(),
+                'total_devices': len(current_devices),
+                'new_devices': len(new_devices),
+                'offline_devices': len(offline_devices),
+                'threats': len(threats) + len(nas_anomalies) + len(behavior_anomalies) + len(bandwidth_anomalies),
+                'check_duration': time.time() - check_start_time
+            })
+            
+            self.logger.info(f"安全检查完成，耗时: {time.time() - check_start_time:.2f}秒")
+            
+        except Exception as e:
+            self.logger.error(f"安全检查失败: {str(e)}", exc_info=True)
+            raise
+    
+    def _detect_device_changes(self, current_devices: Dict) -> tuple:
+        """检测设备变化"""
+        new_devices = []
+        offline_devices = []
+        
+        current_macs = set(current_devices.keys())
+        known_macs = set(self.known_devices.keys())
+        
+        # 检测新设备
+        for mac in current_macs - known_macs:
+            new_devices.append(current_devices[mac])
+        
+        # 检测离线设备
+        for mac in known_macs - current_macs:
+            offline_devices.append(self.known_devices[mac])
+        
+        return new_devices, offline_devices
+    
+    def _handle_new_devices(self, new_devices: List[Dict]):
+        """处理新设备"""
+        for device in new_devices:
+            mac = device.get('mac')
+            ip = device.get('ip')
+            hostname = device.get('hostname', 'Unknown')
+            
+            message = f"发现新设备\nIP: {ip}\nMAC: {mac}\n主机名: {hostname}"
+            self.logger.warning(message)
+            
+            # 检查是否在首次运行模式
+            if hasattr(self, '_first_run_mode') and self._first_run_mode:
+                self.logger.info(f"首次运行模式：设备 {mac} 已记录，将进行安全检查")
+                self.logger.info(f"⚠️  如果该设备存在威胁，将会收到威胁通知")
+                # 首次运行模式下，不发送新设备通知
+            else:
+                # 非首次运行模式，发送Bark通知（受配置控制）
+                self.bark_notifier.send_alert(
+                    title="🚨 新设备接入",
+                    message=message,
+                    severity='warning',
+                    device=device
+                )
+            
+            # 保存到数据库
+            self.database.save_device(device)
+    
+    def _handle_threats(self, threats: List[Dict]):
+        """处理威胁"""
+        for threat in threats:
+            device = threat.get('device', {})
+            threat_type = threat.get('type', 'unknown')
+            severity = threat.get('severity', 'low')
+            description = threat.get('description', '')
+            
+            message = f"威胁类型: {threat_type}\n严重程度: {severity}\n设备: {device.get('ip')}\n描述: {description}"
+            self.logger.warning(message)
+            
+            notify_enabled = self._is_notification_enabled(threat_type)
+            
+            if not notify_enabled:
+                self.logger.info(f"通知已禁用，跳过威胁通知: {threat_type}")
+            
+            elif hasattr(self, '_first_run_mode') and self._first_run_mode:
+                if severity in ['high', 'critical']:
+                    self.logger.warning(f"学习期检测到严重威胁: {threat_type} ({severity})")
+                    self.bark_notifier.send_alert(
+                        title=f"⚠️ 严重安全威胁 - {threat_type}",
+                        message=message,
+                        severity=severity,
+                        device=device,
+                        is_threat=True
+                    )
+                else:
+                    self.logger.info(f"学习期：跳过中等威胁通知 ({threat_type}, {severity})")
+            else:
+                self.bark_notifier.send_alert(
+                    title=f"⚠️ 安全威胁 - {threat_type}",
+                    message=message,
+                    severity=severity,
+                    device=device,
+                    is_threat=True
+                )
+            
+            self.database.save_threat(threat)
+    
+    def _is_notification_enabled(self, threat_type: str) -> bool:
+        """检查威胁类型是否启用通知
+        
+        Args:
+            threat_type: 威胁类型
+            
+        Returns:
+            是否启用通知
+        """
+        try:
+            enabled = self.database.get_system_status(
+                f'NOTIFY_{threat_type}',
+                'true'
+            )
+            return enabled.lower() == 'true'
+        except Exception:
+            return True
+    
+    def _handle_analysis_results(self, analysis_results: List[Dict]):
+        """处理分析结果"""
+        for result in analysis_results:
+            device = result.get('device', {})
+            risk_level = result.get('risk_level', 'unknown')
+            recommendations = result.get('recommendations', [])
+            
+            if risk_level == 'critical':
+                # 高风险设备，采取隔离措施
+                self.logger.critical(f"高风险设备: {device.get('ip')}, 准备隔离")
+                self._isolate_device(device)
+            
+            message = f"风险等级: {risk_level}\n设备: {device.get('ip')}\n建议: {', '.join(recommendations)}"
+            self.bark_notifier.send_alert(
+                title="🔍 设备分析结果",
+                message=message,
+                severity='high' if risk_level in ['critical', 'high'] else 'medium',
+                device=device,
+                is_threat=(risk_level in ['critical', 'high'])
+            )
+    
+    def _isolate_device(self, device: Dict):
+        """隔离设备（限制联网）"""
+        ip = device.get('ip')
+        mac = device.get('mac')
+        
+        self.logger.warning(f"正在隔离设备: {ip} ({mac})")
+        
+        # 使用爱快路由器API添加到黑名单
+        success = self.ikuai_api.add_device_to_blacklist(
+            mac=mac,
+            ip=ip,
+            reason=f"安全监控自动封禁 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        
+        if success:
+            # 发送Bark通知
+            self.bark_notifier.send_alert(
+                title="🔒 设备已隔离",
+                message=f"设备 {ip} ({mac}) 已被限制联网",
+                severity='critical',
+                device=device,
+                is_threat=True
+            )
+        else:
+            self.logger.error(f"设备隔离失败: {ip} ({mac})")
+    def _update_device_status(self, current_devices: Dict):
+        """更新设备状态"""
+        for mac, device in current_devices.items():
+            if mac in self.known_devices:
+                known_device = self.known_devices[mac]
+                if known_device.get('is_known', False):
+                    device['is_known'] = True
+            self.known_devices[mac] = device
+            self.database.save_device(device)
+    
+    def _adjust_notification_strategy_for_first_run(self):
+        """首次运行时调整通知策略"""
+        # 临时调整通知策略
+        original_notify_new_device = self.config.get('NOTIFY_NEW_DEVICE', 'true')
+        original_notify_first_seen = self.config.get('NOTIFY_FIRST_SEEN_IMMEDIATELY', 'false')
+        
+        # 设置为首次运行模式
+        self.config._config['NOTIFY_NEW_DEVICE'] = 'false'
+        self.config._config['NOTIFY_FIRST_SEEN_IMMEDIATELY'] = 'false'
+        
+        # 保存原始配置
+        self._original_notify_new_device = original_notify_new_device
+        self._original_notify_first_seen = original_notify_first_seen
+        self._first_run_mode = True
+        
+        self.logger.info("已启用首次运行模式（通知策略已调整）")
+        self.logger.info("- 新设备通知: 已关闭（避免通知爆炸）")
+        self.logger.info("- 威胁检测通知: 保持开启（确保安全）")
+        self.logger.info("- NAS监控通知: 保持开启（确保安全）")
+        self.logger.info("- 行为分析通知: 保持开启（确保安全）")
+        self.logger.info("- 带宽监控通知: 保持开启（确保安全）")
+    
+    def _check_and_exit_first_run_mode(self):
+        """检查是否应该退出首次运行模式"""
+        if not hasattr(self, '_first_run_mode') or not self._first_run_mode:
+            return False
+        
+        # 检查是否满足退出条件
+        # 1. 行为观察数据时间范围 >= 24小时
+        earliest_behavior_time = self.database.get_earliest_behavior_time()
+        if earliest_behavior_time:
+            from datetime import datetime, timedelta
+            time_diff = datetime.now() - earliest_behavior_time
+            if time_diff < timedelta(hours=24):
+                self.logger.info(f"学习期进度: 行为观察数据时间范围 {time_diff} / 24小时")
+                return False
+        
+        # 2. 有足够观察数据的设备 >= 设备总数的50%
+        total_devices = self.database.get_total_devices_count()
+        devices_with_sufficient_data = self.database.get_devices_with_sufficient_behavior_data(min_observations=7)
+        
+        if devices_with_sufficient_data < total_devices * 0.5:
+            progress = devices_with_sufficient_data / (total_devices * 0.5) * 100
+            self.logger.info(f"学习期进度: 有足够观察数据的设备 {devices_with_sufficient_data}/{int(total_devices * 0.5)} ({progress:.1f}%)")
+            return False
+        
+        # 满足退出条件
+        self.logger.info("=" * 60)
+        self.logger.info("✅ 学习期已完成，退出首次运行模式")
+        self.logger.info("=" * 60)
+        self.logger.info(f"当前设备数量: {total_devices}")
+        self.logger.info(f"有足够观察数据的设备: {devices_with_sufficient_data}")
+        
+        # 将学习期间记录的所有设备标记为已知设备
+        marked_count = self.database.mark_all_devices_as_known()
+        self.logger.info(f"已将 {marked_count} 个学习期设备标记为已知")
+        
+        self.logger.info("恢复原始通知策略:")
+        self.logger.info(f"- 新设备通知: {self._original_notify_new_device}")
+        self.logger.info(f"- 首次出现告警: {self._original_notify_first_seen}")
+        self.logger.info("=" * 60)
+        
+        # 恢复原始配置
+        self.config._config['NOTIFY_NEW_DEVICE'] = self._original_notify_new_device
+        self.config._config['NOTIFY_FIRST_SEEN_IMMEDIATELY'] = self._original_notify_first_seen
+        
+        # 标记首次运行已完成
+        self.database.mark_first_run_completed()
+        
+        # 发送系统通知
+        self.bark_notifier.send_alert(
+            title="✅ 学习期完成",
+            message=f"已学习 {total_devices} 个设备的行为模式，系统已进入正常运行模式",
+            severity='info'
+        )
+        
+        self._first_run_mode = False
+        return True
+    
+    def cleanup(self):
+        """清理资源"""
+        self.logger.info("清理资源...")
+        self.network_scanner.cleanup()
+        self.nas_monitor.cleanup()
+        self.behavior_analyzer.cleanup()
+        self.bandwidth_monitor.cleanup()
+        self.metrics_exporter.cleanup()
+        self.ikuai_api.cleanup()
+        self.database.close()
+        self.logger.info("资源清理完成")

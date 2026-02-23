@@ -30,8 +30,8 @@ class SecurityMonitor:
         self.logger = logging.getLogger('LanSecurityMonitor')
         
         # 初始化组件
-        self.network_scanner = NetworkScanner(config)
         self.database = Database(config)
+        self.network_scanner = NetworkScanner(config, self.database)
         self.threat_detector = ThreatDetector(config, self.database)
         self.device_analyzer = DeviceAnalyzer(config)
         self.nas_monitor = NASMonitor(config)
@@ -338,6 +338,24 @@ class SecurityMonitor:
     def _update_device_status(self, current_devices: Dict):
         """更新设备状态"""
         for mac, device in current_devices.items():
+            # 如果是已知设备，先从数据库获取用户手动设置的字段
+            if self.database:
+                try:
+                    old_device = self.database.load_device_by_mac(mac)
+                    if old_device:
+                        # 保留用户手动设置的字段
+                        if old_device.get('hostname') and old_device.get('hostname') not in ('Unknown', 'unknown', ''):
+                            device['hostname'] = old_device['hostname']
+                        if old_device.get('device_type') and old_device.get('device_type') not in ('unknown', 'Unknown', ''):
+                            device['device_type'] = old_device['device_type']
+                        if old_device.get('vendor') and old_device.get('vendor') not in ('Unknown', 'unknown', ''):
+                            device['vendor'] = old_device['vendor']
+                        # 保留 notes 和其他用户设置的字段
+                        if old_device.get('notes'):
+                            device['notes'] = old_device['notes']
+                except Exception as e:
+                    self.logger.debug(f"获取设备信息失败: {e}")
+            
             if mac in self.known_devices:
                 known_device = self.known_devices[mac]
                 if known_device.get('is_known', False):

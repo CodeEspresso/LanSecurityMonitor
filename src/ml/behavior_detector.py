@@ -25,7 +25,7 @@ class MLBehaviorDetector:
         
         self.enabled = config.get_bool('ENABLE_ML_BEHAVIOR', True)
         self.model = None
-        self.min_training_samples = config.get_int('ML_BEHAVIOR_MIN_SAMPLES', 100)
+        self.min_training_samples = config.get_int('ML_BEHAVIOR_MIN_SAMPLES', 30)
         self.anomaly_threshold = config.get_float('ML_ANOMALY_THRESHOLD', 0.5)
         
         self._initialize()

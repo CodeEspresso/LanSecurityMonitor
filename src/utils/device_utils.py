@@ -193,13 +193,14 @@ class DeviceUtils:
         Returns:
             设备类型
         """
-        # 1. 如果有数据库，优先查询用户标记的类型
+        # 1. 如果有数据库，优先查询用户标记的类型（永不覆盖用户手动设置的类型）
         if database and mac:
             try:
                 device = database.load_device_by_mac(mac)
                 if device and device.get('device_type'):
                     user_type = device.get('device_type')
-                    if user_type and user_type != 'unknown':
+                    # 只有用户明确标记了类型，才优先使用
+                    if user_type and user_type not in ('unknown', 'Unknown', ''):
                         logger.info(f"使用用户标记的设备类型: {mac} -> {user_type}")
                         return user_type
             except Exception as e:
@@ -235,11 +236,12 @@ class DeviceUtils:
         return categories.get(device_type, 'unknown')
     
     @classmethod
-    def analyze_device(cls, device: Dict) -> Dict:
-        """分析设备信息
+    def analyze_device(cls, device: Dict, database=None) -> Dict:
+        """分析设备信息（多特征融合）
         
         Args:
             device: 设备信息
+            database: 数据库实例（可选，用于读取用户标记的设备类型）
             
         Returns:
             增强后的设备信息
@@ -251,15 +253,28 @@ class DeviceUtils:
         vendor = cls.get_vendor_from_mac(mac)
         device['vendor'] = vendor or device.get('vendor', '')
         
-        # 获取设备类型
-        device_type = cls.get_device_type(vendor, hostname)
+        # 1. 优先保留用户手动设置的主机名（永不覆盖）
+        if database and hostname in ('Unknown', 'unknown', ''):
+            try:
+                old_device = database.load_device_by_mac(mac)
+                if old_device and old_device.get('hostname') and old_device.get('hostname') not in ('Unknown', 'unknown', ''):
+                    device['hostname'] = old_device['hostname']
+                    hostname = old_device['hostname']
+            except Exception as e:
+                logger.debug(f"获取历史主机名失败: {e}")
+        
+        # 2. 获取设备类型（优先使用用户标记）
+        if database:
+            device_type = cls.get_device_type_with_database(vendor, hostname, database, mac)
+        else:
+            device_type = cls.get_device_type(vendor, hostname)
         device['device_type'] = device_type
         
-        # 获取设备分类
+        # 3. 获取设备分类
         category = cls.get_device_category(device_type)
         device['category'] = category
         
-        # 设置默认风险等级
+        # 4. 设置默认风险等级
         device['risk_level'] = cls._get_default_risk_level(category)
         
         return device

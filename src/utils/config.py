@@ -68,6 +68,14 @@ class Config:
         except (ValueError, TypeError):
             return default
     
+    def get_float(self, key: str, default: float = 0.0) -> float:
+        """获取浮点数配置值"""
+        value = self.get(key, default)
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return default
+    
     def get_bool(self, key: str, default: bool = False) -> bool:
         """获取布尔配置值"""
         value = self.get(key, default)

@@ -27,7 +27,7 @@ class DeviceUtils:
         # NAS厂商
         '00:11:32': '群晖',
         '00:04:A2': '群晖',
-        '00:E0:4C': '群晖',
+        # '00:E0:4C': '群晖',  # 移除，这个是 Realtek
         '24:69:8E': '威联通',
         '24:5E:BE': '威联通',
         '00:08:9B': '威联通',
@@ -45,6 +45,9 @@ class DeviceUtils:
         '3C:07:54': 'Apple',
         '58:11:22': 'Apple',
         'AC:DE:48': 'Apple',
+        
+        # PC/主板厂商
+        '00:E0:4C': 'Realtek',
         
         # 游戏主机
         '00:09:BF': 'Nintendo',
@@ -125,7 +128,12 @@ class DeviceUtils:
     
     @classmethod
     def get_device_type(cls, vendor: str, hostname: str) -> str:
-        """获取设备类型
+        """获取设备类型（多特征融合识别）
+        
+        优先级：
+        1. 用户手动标记的类型（需传入 database）
+        2. 主机名特征
+        3. 厂商特征
         
         Args:
             vendor: 厂商名称
@@ -139,32 +147,66 @@ class DeviceUtils:
         
         vendor_lower = vendor.lower()
         
-        # 优先从厂商映射
-        for key, device_type in cls.DEVICE_TYPES.items():
-            if key in vendor_lower:
-                return device_type
-        
-        # 从主机名判断
+        # 从主机名优先判断
         if hostname:
             hostname_lower = hostname.lower()
             if any(key in hostname_lower for key in ['nas', 'synology', 'qnap', 'terramaster']):
                 return 'nas'
             elif any(key in hostname_lower for key in ['smart', 'home', 'iot', 'zigbee', 'zwave']):
                 return 'smart_home'
-            elif any(key in hostname_lower for key in ['apple', 'iphone', 'ipad', 'mac']):
+            elif any(key in hostname_lower for key in ['apple', 'iphone', 'ipad', 'macbook', 'mac-mini', 'macmini', 'imac']):
                 return 'personal_device'
-            elif any(key in hostname_lower for key in ['pc', 'desktop', 'laptop', 'computer']):
+            elif any(key in hostname_lower for key in ['pc', 'desktop', 'laptop', 'computer', 'thinkpad', ' XPS ', 'spectre', 'envy', 'pavilion', 'legion', 'rog', 'predator', 'razer']):
                 return 'computer'
-            elif any(key in hostname_lower for key in ['tv', 'display', 'screen']):
+            elif any(key in hostname_lower for key in ['tv', 'display', 'screen', 'smarttv', 'smart-tv']):
                 return 'tv'
-            elif any(key in hostname_lower for key in ['phone', 'mobile', 'android', 'ios']):
+            elif any(key in hostname_lower for key in ['phone', 'mobile', 'android', 'iphone', 'huawei-', 'xiaomi-', 'oppo-', 'vivo-', 'oneplus']):
                 return 'mobile'
             elif any(key in hostname_lower for key in ['printer', 'print']):
                 return 'printer'
-            elif any(key in hostname_lower for key in ['camera', 'cam', 'ipcam']):
+            elif any(key in hostname_lower for key in ['camera', 'cam', 'ipcam', 'nvr']):
                 return 'camera'
+            elif any(key in hostname_lower for key in ['router', 'gateway', 'ax', 'rt', 'mesh']):
+                return 'router'
+        
+        # 从厂商映射
+        for key, device_type in cls.DEVICE_TYPES.items():
+            if key in vendor_lower:
+                return device_type
+        
+        # 特殊处理扩展坞/网卡
+        if any(key in vendor_lower for key in ['realtek', 'broadcom', 'intel', 'atheros']):
+            return 'computer'
         
         return 'unknown'
+    
+    @classmethod
+    def get_device_type_with_database(cls, vendor: str, hostname: str, database=None, mac: str = None) -> str:
+        """获取设备类型（支持数据库用户标记）
+        
+        Args:
+            vendor: 厂商名称
+            hostname: 主机名
+            database: 数据库实例
+            mac: MAC地址
+            
+        Returns:
+            设备类型
+        """
+        # 1. 如果有数据库，优先查询用户标记的类型
+        if database and mac:
+            try:
+                device = database.load_device_by_mac(mac)
+                if device and device.get('device_type'):
+                    user_type = device.get('device_type')
+                    if user_type and user_type != 'unknown':
+                        logger.info(f"使用用户标记的设备类型: {mac} -> {user_type}")
+                        return user_type
+            except Exception as e:
+                logger.debug(f"查询用户设备类型失败: {e}")
+        
+        # 2. 使用多特征融合识别
+        return cls.get_device_type(vendor, hostname)
     
     @classmethod
     def get_device_category(cls, device_type: str) -> str:

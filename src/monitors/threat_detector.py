@@ -9,6 +9,13 @@ from typing import Dict, List, Optional
 
 from .device_risk_analyzer import DeviceRiskAnalyzer
 
+try:
+    from ..ml.risk_enhancer import MLRiskEnhancer
+    from ..ml.behavior_detector import MLBehaviorDetector
+    ML_AVAILABLE = True
+except ImportError:
+    ML_AVAILABLE = False
+
 
 class ThreatDetector:
     """威胁检测器"""
@@ -23,6 +30,11 @@ class ThreatDetector:
         
         self.enable_risk_analysis = config.get_bool('ENABLE_RISK_ANALYSIS', True)
         self.risk_analyzer: Optional[DeviceRiskAnalyzer] = None
+        
+        self.enable_ml_risk = config.get_bool('ENABLE_ML_RISK', True) and ML_AVAILABLE
+        self.enable_ml_behavior = config.get_bool('ENABLE_ML_BEHAVIOR', True) and ML_AVAILABLE
+        self.ml_risk_enhancer: Optional[MLRiskEnhancer] = None
+        self.ml_behavior_detector: Optional[MLBehaviorDetector] = None
     
     def initialize(self):
         """初始化威胁检测器"""
@@ -32,6 +44,26 @@ class ThreatDetector:
             self.risk_analyzer = DeviceRiskAnalyzer(self.config, self.database)
             self.risk_analyzer.initialize()
             self.logger.info("已启用设备风险评估功能")
+        
+        if self.enable_ml_risk:
+            try:
+                self.ml_risk_enhancer = MLRiskEnhancer(self.config, self.database)
+                self.ml_risk_enhancer.initialize()
+                self.logger.info("已启用ML风险增强功能")
+            except Exception as e:
+                self.logger.warning(f"ML风险增强初始化失败: {e}")
+                self.enable_ml_risk = False
+        
+        if self.enable_ml_behavior:
+            try:
+                self.ml_behavior_detector = MLBehaviorDetector(self.config, self.database)
+                self.ml_behavior_detector.initialize()
+                self.logger.info("已启用ML行为异常检测功能")
+            except Exception as e:
+                self.logger.warning(f"ML行为检测初始化失败: {e}")
+                self.enable_ml_behavior = False
+        
+        self.log_ml_status()
     
     def detect_threats(self, devices: Dict, known_devices: Dict = None) -> List[Dict]:
         """检测威胁
@@ -58,16 +90,24 @@ class ThreatDetector:
                     
                     if should_alert:
                         risk_result = self.risk_analyzer.analyze_device_risk(device)
-                        severity = self._map_risk_level_to_severity(risk_result['risk_level'])
+                        
+                        if self.enable_ml_risk and self.ml_risk_enhancer:
+                            risk_result = self.ml_risk_enhancer.enhance_risk_assessment(device, risk_result)
+                            self.logger.info(f"ML增强风险评估: 设备 {device.get('ip')}, 分数: {risk_result.get('enhanced_score', risk_result.get('risk_score'))}")
+                        
+                        severity = self._map_risk_level_to_severity(risk_result.get('risk_level', 'medium'))
                         
                         threats.append({
                             'device': device,
                             'type': 'unknown_device',
                             'severity': severity,
                             'description': f"未知设备接入: {device.get('ip')} ({mac}) - {reason}",
-                            'risk_score': risk_result['risk_score'],
-                            'risk_details': risk_result['score_details'],
-                            'recommendations': risk_result['recommendations']
+                            'risk_score': risk_result.get('enhanced_score', risk_result.get('risk_score')),
+                            'risk_level': risk_result.get('risk_level'),
+                            'risk_details': risk_result.get('score_details', {}),
+                            'ml_enhanced': risk_result.get('ml_enhanced', False),
+                            'ml_prediction': risk_result.get('ml_prediction'),
+                            'recommendations': risk_result.get('recommendations', [])
                         })
                     else:
                         self.logger.info(f"新设备风险较低，自动标记为已知: {device.get('ip')} ({mac}) - {reason}")
@@ -83,6 +123,49 @@ class ThreatDetector:
                     })
         
         return threats
+    
+    def detect_known_device_anomalies(self, devices: Dict) -> List[Dict]:
+        """检测已知设备的异常行为
+        
+        Args:
+            devices: 当前设备字典
+            
+        Returns:
+            异常列表
+        """
+        anomalies = []
+        
+        if not self.enable_ml_behavior or not self.ml_behavior_detector:
+            return anomalies
+        
+        for mac, device in devices.items():
+            if not device.get('is_known', False):
+                continue
+            
+            try:
+                behavior_data = {
+                    'behavior_history': [],
+                    'network_activity_score': 50,
+                    'session_duration_hours': device.get('online_hours', 0),
+                    'last_seen_timestamp': device.get('last_seen')
+                }
+                
+                result = self.ml_behavior_detector.detect_anomaly(device, behavior_data)
+                
+                if result.get('is_anomaly'):
+                    self.logger.info(f"🔍 ML行为检测: 设备 {device.get('ip')} 存在异常 - {result.get('details', [])}")
+                    anomalies.append({
+                        'device': device,
+                        'type': 'behavior_anomaly',
+                        'severity': 'medium',
+                        'description': f"设备行为异常: {', '.join(result.get('details', []))}",
+                        'anomaly_score': result.get('anomaly_score', 0),
+                        'ml_enhanced': True
+                    })
+            except Exception as e:
+                self.logger.debug(f"行为检测跳过设备 {mac}: {e}")
+        
+        return anomalies
     
     def _map_risk_level_to_severity(self, risk_level: str) -> str:
         """将风险等级映射到威胁严重程度
@@ -114,3 +197,52 @@ class ThreatDetector:
         if self.risk_analyzer:
             return self.risk_analyzer.analyze_device_risk(device)
         return {'risk_score': 50, 'risk_level': 'medium', 'should_alert': True}
+    
+    def get_ml_status(self) -> Dict:
+        """获取ML模块状态
+        
+        Returns:
+            ML状态信息字典
+        """
+        status = {
+            'ml_available': ML_AVAILABLE,
+            'ml_risk_enabled': self.enable_ml_risk,
+            'ml_behavior_enabled': self.enable_ml_behavior,
+            'risk_model': None,
+            'behavior_model': None
+        }
+        
+        if self.enable_ml_risk and self.ml_risk_enhancer:
+            status['risk_model'] = self.ml_risk_enhancer.get_model_info()
+        
+        if self.enable_ml_behavior and self.ml_behavior_detector:
+            status['behavior_model'] = self.ml_behavior_detector.get_model_info()
+        
+        return status
+    
+    def log_ml_status(self):
+        """记录ML模块状态到日志"""
+        self.logger.info("=" * 50)
+        self.logger.info("🤖 ML模块状态")
+        self.logger.info("=" * 50)
+        
+        if not ML_AVAILABLE:
+            self.logger.info("⚠️  scikit-learn 未安装，ML功能不可用")
+            self.logger.info("   请运行: pip install scikit-learn")
+            return
+        
+        status = self.get_ml_status()
+        
+        self.logger.info(f"ML库可用: ✅")
+        self.logger.info(f"ML风险增强: {'✅ 已启用' if status['ml_risk_enabled'] else '❌ 未启用'}")
+        self.logger.info(f"ML行为检测: {'✅ 已启用' if status['ml_behavior_enabled'] else '❌ 未启用'}")
+        
+        if status['risk_model']:
+            rm = status['risk_model']
+            self.logger.info(f"  风险模型: {'已训练' if rm.get('is_trained') else '未训练'} ({rm.get('model_type', 'N/A')})")
+        
+        if status['behavior_model']:
+            bm = status['behavior_model']
+            self.logger.info(f"  行为模型: {'已训练' if bm.get('is_trained') else '未训练'} ({bm.get('model_type', 'N/A')})")
+        
+        self.logger.info("=" * 50)

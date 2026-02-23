@@ -245,6 +245,75 @@
                 </div>
             </div>
         </div>
+
+        <div class="row g-4 mt-0">
+            <div class="col-12">
+                <div class="card settings-card">
+                    <div class="card-header">
+                        <i class="bi bi-cpu"></i>机器学习设置
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">
+                            <i class="bi bi-info-circle"></i>
+                            配置 ML 风险评估和行为异常检测功能
+                        </p>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="ml_risk_enabled">
+                                    <label class="form-check-label fw-semibold" for="ml_risk_enabled">启用 ML 风险增强</label>
+                                </div>
+                                <small class="text-muted">使用 Random Forest 算法增强设备风险评估</small>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="ml_behavior_enabled">
+                                    <label class="form-check-label fw-semibold" for="ml_behavior_enabled">启用 ML 行为异常检测</label>
+                                </div>
+                                <small class="text-muted">使用 Isolation Forest 算法检测设备行为异常</small>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label small text-muted mb-1">风险评估模型</label>
+                                <select class="form-select form-select-sm" id="ml_risk_model">
+                                    <option value="sklearn_rf">Random Forest (推荐)</option>
+                                    <option value="sklearn_gb">Gradient Boosting</option>
+                                    <option value="rule_based">规则基础 (后备)</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label small text-muted mb-1">行为检测模型</label>
+                                <select class="form-select form-select-sm" id="ml_behavior_model">
+                                    <option value="sklearn_if">Isolation Forest (推荐)</option>
+                                    <option value="rule_based">规则基础 (后备)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div>
+                                <span class="text-muted small">模型状态：</span>
+                                <span id="ml-model-status" class="badge bg-secondary">加载中...</span>
+                            </div>
+                            <div>
+                                <button class="btn btn-outline-primary btn-sm me-2" onclick="loadMLSettings()">
+                                    <i class="bi bi-arrow-clockwise"></i> 刷新
+                                </button>
+                                <button class="btn btn-primary btn-sm" onclick="saveMLSettings()">
+                                    <i class="bi bi-check-lg"></i> 保存设置
+                                </button>
+                            </div>
+                        </div>
+                        <div id="ml-restart-warning" class="alert alert-warning mt-3 mb-0" style="display: none;">
+                            <i class="bi bi-exclamation-triangle me-1"></i>
+                            配置已保存，需要重启服务才能生效
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div class="modal fade" id="confirm-modal" tabindex="-1">
@@ -448,6 +517,71 @@
                 showNotification('修改失败', 'danger');
             }
         });
+
+        async function loadMLSettings() {
+            try {
+                const response = await apiRequest('/api/settings/ml');
+                if (response && response.success) {
+                    const settings = response.settings;
+                    document.getElementById('ml_risk_enabled').checked = settings.enable_ml_risk !== false;
+                    document.getElementById('ml_behavior_enabled').checked = settings.enable_ml_behavior !== false;
+                    document.getElementById('ml_risk_model').value = settings.ml_risk_model || 'sklearn_rf';
+                    document.getElementById('ml_behavior_model').value = settings.ml_behavior_model || 'sklearn_if';
+                    
+                    let statusText = '已就绪';
+                    let statusClass = 'bg-success';
+                    if (!settings.ml_library_available) {
+                        statusText = '未安装 scikit-learn';
+                        statusClass = 'bg-danger';
+                    } else if (!settings.risk_model_trained && !settings.behavior_model_trained) {
+                        statusText = '等待训练数据';
+                        statusClass = 'bg-warning';
+                    } else if (settings.risk_model_trained && settings.behavior_model_trained) {
+                        statusText = '模型已训练';
+                        statusClass = 'bg-success';
+                    } else {
+                        statusText = '部分已训练';
+                        statusClass = 'bg-info';
+                    }
+                    
+                    const statusEl = document.getElementById('ml-model-status');
+                    statusEl.textContent = statusText;
+                    statusEl.className = `badge ${statusClass}`;
+                }
+            } catch (error) {
+                console.error('加载ML设置失败:', error);
+                document.getElementById('ml-model-status').textContent = '加载失败';
+                document.getElementById('ml-model-status').className = 'badge bg-danger';
+            }
+        }
+
+        async function saveMLSettings() {
+            try {
+                const settings = {
+                    'enable_ml_risk': document.getElementById('ml_risk_enabled').checked,
+                    'enable_ml_behavior': document.getElementById('ml_behavior_enabled').checked,
+                    'ml_risk_model': document.getElementById('ml_risk_model').value,
+                    'ml_behavior_model': document.getElementById('ml_behavior_model').value
+                };
+                
+                const response = await apiRequest('/api/settings/ml', {
+                    method: 'POST',
+                    body: JSON.stringify({ settings: settings })
+                });
+                
+                if (response && response.success) {
+                    showNotification('ML设置已保存', 'success');
+                    document.getElementById('ml-restart-warning').style.display = 'block';
+                } else {
+                    showNotification(response?.message || '保存失败', 'danger');
+                }
+            } catch (error) {
+                console.error('保存ML设置失败:', error);
+                showNotification('保存失败', 'danger');
+            }
+        }
+
+        loadMLSettings();
     </script>
 </body>
 </html>

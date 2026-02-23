@@ -111,7 +111,43 @@ class Database:
                 status TEXT
             )
         ''')
-        
+
+        # ML训练数据表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS ml_training_data (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mac TEXT,
+                data_json TEXT,
+                label INTEGER,
+                source TEXT,
+                timestamp TEXT,
+                validated INTEGER DEFAULT 0
+            )
+        ''')
+
+        # ML模型反馈表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS ml_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mac TEXT,
+                predicted_label INTEGER,
+                actual_label INTEGER,
+                feedback_type TEXT,
+                timestamp TEXT
+            )
+        ''')
+
+        # ML模型元数据表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS ml_model_metadata (
+                model_type TEXT PRIMARY KEY,
+                trained_at TEXT,
+                training_samples INTEGER,
+                accuracy REAL,
+                config_json TEXT
+            )
+        ''')
+
         self.conn.commit()
     
     def load_known_devices(self) -> Dict:
@@ -675,3 +711,218 @@ class Database:
                 'by_severity': {},
                 'by_type': {}
             }
+
+    def save_ml_training_data(self, device: Dict, label: int, source: str = 'auto'):
+        """保存ML训练数据
+        
+        Args:
+            device: 设备数据
+            label: 标签 (0=safe, 1=low, 2=medium, 3=high/critical)
+            source: 数据来源 (auto/manual)
+        """
+        try:
+            import json
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                INSERT INTO ml_training_data (mac, data_json, label, source, timestamp, validated)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                device.get('mac'),
+                json.dumps(device),
+                label,
+                source,
+                datetime.now().isoformat(),
+                1 if source == 'manual' else 0
+            ))
+            self.conn.commit()
+        except Exception as e:
+            self.logger.error(f"保存ML训练数据失败: {e}")
+
+    def load_ml_training_data(self, model_type: str = 'risk', min_samples: int = 10) -> List[Dict]:
+        """加载ML训练数据
+        
+        Args:
+            model_type: 模型类型
+            min_samples: 最小样本数
+            
+        Returns:
+            训练数据列表
+        """
+        try:
+            import json
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                SELECT data_json, label FROM ml_training_data 
+                WHERE validated = 1
+                ORDER BY timestamp DESC
+                LIMIT ?
+            ''', (min_samples * 2,))
+            
+            training_data = []
+            for row in cursor.fetchall():
+                training_data.append({
+                    'data': json.loads(row[0]),
+                    'label': row[1]
+                })
+            
+            return training_data
+        except Exception as e:
+            self.logger.error(f"加载ML训练数据失败: {e}")
+            return []
+
+    def save_ml_feedback(self, mac: str, actual_label: int, predicted_label: int = None, feedback_type: str = 'correction'):
+        """保存ML模型反馈
+        
+        Args:
+            mac: 设备MAC地址
+            actual_label: 实际标签
+            predicted_label: 预测标签
+            feedback_type: 反馈类型
+        """
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                INSERT INTO ml_feedback (mac, predicted_label, actual_label, feedback_type, timestamp)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (
+                mac,
+                predicted_label,
+                actual_label,
+                feedback_type,
+                datetime.now().isoformat()
+            ))
+            self.conn.commit()
+        except Exception as e:
+            self.logger.error(f"保存ML反馈失败: {e}")
+
+    def get_ml_feedback_stats(self) -> Dict:
+        """获取ML反馈统计"""
+        try:
+            cursor = self.conn.cursor()
+            
+            cursor.execute('SELECT COUNT(*) FROM ml_feedback')
+            total = cursor.fetchone()[0]
+            
+            cursor.execute('SELECT COUNT(DISTINCT mac) FROM ml_feedback')
+            unique_devices = cursor.fetchone()[0]
+            
+            cursor.execute('''
+                SELECT feedback_type, COUNT(*) FROM ml_feedback 
+                GROUP BY feedback_type
+            ''')
+            by_type = {row[0]: row[1] for row in cursor.fetchall()}
+            
+            return {
+                'total': total,
+                'unique_devices': unique_devices,
+                'by_type': by_type
+            }
+        except Exception as e:
+            self.logger.error(f"获取ML反馈统计失败: {e}")
+            return {'total': 0, 'unique_devices': 0, 'by_type': {}}
+
+    def save_ml_model_metadata(self, model_type: str, trained_at: str, training_samples: int, accuracy: float = None, config: Dict = None):
+        """保存ML模型元数据
+        
+        Args:
+            model_type: 模型类型
+            trained_at: 训练时间
+            training_samples: 训练样本数
+            accuracy: 准确率
+            config: 配置信息
+        """
+        try:
+            import json
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                INSERT OR REPLACE INTO ml_model_metadata 
+                (model_type, trained_at, training_samples, accuracy, config_json)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (
+                model_type,
+                trained_at,
+                training_samples,
+                accuracy,
+                json.dumps(config) if config else None
+            ))
+            self.conn.commit()
+        except Exception as e:
+            self.logger.error(f"保存ML模型元数据失败: {e}")
+
+    def get_ml_model_metadata(self, model_type: str) -> Optional[Dict]:
+        """获取ML模型元数据
+        
+        Args:
+            model_type: 模型类型
+            
+        Returns:
+            模型元数据字典
+        """
+        try:
+            import json
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                SELECT trained_at, training_samples, accuracy, config_json 
+                FROM ml_model_metadata 
+                WHERE model_type = ?
+            ''', (model_type,))
+            
+            row = cursor.fetchone()
+            if row:
+                return {
+                    'trained_at': row[0],
+                    'training_samples': row[1],
+                    'accuracy': row[2],
+                    'config': json.loads(row[3]) if row[3] else {}
+                }
+            return None
+        except Exception as e:
+            self.logger.error(f"获取ML模型元数据失败: {e}")
+            return None
+
+    def load_device_behaviors(self) -> Dict[str, List[Dict]]:
+        """加载所有设备的行为数据
+        
+        Returns:
+            行为数据字典 {mac: [behaviors]}
+        """
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                SELECT mac, ip, hostname, timestamp, hour, day_of_week, status 
+                FROM device_behaviors 
+                ORDER BY timestamp DESC
+            ''')
+            
+            behaviors = {}
+            for row in cursor.fetchall():
+                mac = row[0]
+                behavior = {
+                    'mac': row[0],
+                    'ip': row[1],
+                    'hostname': row[2],
+                    'timestamp': row[3],
+                    'hour': row[4],
+                    'day_of_week': row[5],
+                    'status': row[6]
+                }
+                
+                if mac not in behaviors:
+                    behaviors[mac] = []
+                behaviors[mac].append(behavior)
+            
+            return behaviors
+        except Exception as e:
+            self.logger.error(f"加载设备行为数据失败: {e}")
+            return {}
+
+    def load_device_behavior(self, mac: str) -> List[Dict]:
+        """加载指定设备的行为数据
+        
+        Args:
+            mac: 设备MAC地址
+            
+        Returns:
+            行为数据列表
+        """
+        return self.get_device_behaviors(mac)

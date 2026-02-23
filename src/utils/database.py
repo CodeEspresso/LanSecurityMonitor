@@ -175,6 +175,36 @@ class Database:
         
         return devices
     
+    def load_device_by_mac(self, mac: str) -> Optional[Dict]:
+        """按MAC地址加载设备
+        
+        Args:
+            mac: MAC地址
+            
+        Returns:
+            设备信息字典，不存在则返回None
+        """
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT * FROM devices WHERE mac = ?', (mac,))
+        
+        row = cursor.fetchone()
+        if row:
+            return {
+                'mac': row[0],
+                'ip': row[1],
+                'hostname': row[2],
+                'vendor': row[3],
+                'os_type': row[4],
+                'device_type': row[5],
+                'category': row[6],
+                'risk_level': row[7],
+                'first_seen': row[8],
+                'last_seen': row[9],
+                'is_known': bool(row[10]),
+                'notes': row[11]
+            }
+        return None
+    
     def save_device(self, device: Dict):
         """保存设备信息"""
         cursor = self.conn.cursor()

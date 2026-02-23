@@ -16,8 +16,9 @@ from ..utils.device_utils import DeviceUtils
 class NetworkScanner:
     """网络扫描器"""
     
-    def __init__(self, config):
+    def __init__(self, config, database=None):
         self.config = config
+        self.database = database
         self.logger = logging.getLogger('LanSecurityMonitor')
         
         self.network_range = config.get('NETWORK_RANGE', '192.168.1.0/24')
@@ -41,7 +42,7 @@ class NetworkScanner:
             # 使用nmap扫描
             # -sn: Ping扫描，不进行端口扫描
             # -n: 不进行DNS解析
-            cmd = f"nmap -sn -n {self.network_range}"
+            cmd = f"nmap -sn {self.network_range}"
             
             result = subprocess.run(
                 cmd,
@@ -110,8 +111,8 @@ class NetworkScanner:
         enhanced_devices = {}
         
         for mac, device in devices.items():
-            # 使用设备工具分析设备
-            enhanced_device = DeviceUtils.analyze_device(device.copy())
+            # 使用设备工具分析设备（传入database以支持用户标记的设备和主机名）
+            enhanced_device = DeviceUtils.analyze_device(device.copy(), self.database)
             enhanced_devices[mac] = enhanced_device
             
             # 记录设备信息

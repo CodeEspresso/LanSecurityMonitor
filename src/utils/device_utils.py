@@ -23,11 +23,15 @@ class DeviceUtils:
         'AC:CF:23': '海康威视',
         'A4:C4:94': '绿米',
         '34:CE:00': '乐鑫科技（ESP芯片）',
+        '64:B4:73': '小米',
+        '34:80:B3': '小米',
+        '54:48:E6': '小米',
+        '7C:1D:D9': '小米',
+        'F0:B4:29': '小米',
         
         # NAS厂商
         '00:11:32': '群晖',
         '00:04:A2': '群晖',
-        # '00:E0:4C': '群晖',  # 移除，这个是 Realtek
         '24:69:8E': '威联通',
         '24:5E:BE': '威联通',
         '00:08:9B': '威联通',
@@ -77,6 +81,9 @@ class DeviceUtils:
         'hikvision': 'smart_home',
         'aqara': 'smart_home',
         'espressif': 'smart_home',
+        'tuya': 'smart_home',
+        'gree': 'smart_home',
+        'tuya': 'smart_home',
         
         # NAS设备
         'synology': 'nas',
@@ -93,7 +100,42 @@ class DeviceUtils:
         # 其他设备类型
         'apple': 'personal_device',
         'intel': 'computer',
+        'realtek': 'computer',
+        'broadcom': 'computer',
+        'atheros': 'computer',
+        'microsoft': 'computer',
+        'dell': 'computer',
+        'lenovo': 'computer',
+        'asus': 'computer',
         'hp': 'computer',
+        'gigabyte': 'computer',
+        'asrock': 'computer',
+        
+        # 网络设备
+        'cisco': 'network_device',
+        'tp-link': 'network_device',
+        'tplink': 'network_device',
+        'netgear': 'network_device',
+        'h3c': 'network_device',
+        'huawei': 'network_device',
+        'juniper': 'network_device',
+        'aruba': 'network_device',
+        'ruckus': 'network_device',
+        'ubiquiti': 'network_device',
+        'mikrotik': 'network_device',
+        'd-link': 'network_device',
+        'dlink': 'network_device',
+        'totolink': 'network_device',
+        'mercury': 'network_device',
+        'fast': 'network_device',
+        'tenda': 'network_device',
+        'hongrui': 'network_device',
+        'xieke': 'network_device',
+        '兮克': 'network_device',
+        'swooshow': 'network_device',
+        'optical': 'network_device',
+        'fiber': 'network_device',
+        
         'vmware': 'virtual_machine',
         'hyper-v': 'virtual_machine',
         'parallels': 'virtual_machine',
@@ -181,14 +223,15 @@ class DeviceUtils:
         return 'unknown'
     
     @classmethod
-    def get_device_type_with_database(cls, vendor: str, hostname: str, database=None, mac: str = None) -> str:
+    def get_device_type_with_database(cls, vendor: str, hostname: str, database=None, mac: str = None, raw_vendor: str = None) -> str:
         """获取设备类型（支持数据库用户标记）
         
         Args:
-            vendor: 厂商名称
+            vendor: 厂商名称（MAC OUI映射）
             hostname: 主机名
             database: 数据库实例
             mac: MAC地址
+            raw_vendor: 原始vendor（nmap提取）
             
         Returns:
             设备类型
@@ -206,7 +249,11 @@ class DeviceUtils:
             except Exception as e:
                 logger.debug(f"查询用户设备类型失败: {e}")
         
-        # 2. 使用多特征融合识别
+        # 2. 如果 MAC OUI 映射找不到，使用 nmap 原始 vendor
+        if (not vendor or vendor == 'Unknown') and raw_vendor:
+            vendor = raw_vendor
+        
+        # 3. 使用多特征融合识别
         return cls.get_device_type(vendor, hostname)
     
     @classmethod
@@ -225,6 +272,7 @@ class DeviceUtils:
             'computer': 'core',  # 核心设备
             'personal_device': 'core',  # 核心设备
             'mobile': 'core',  # 核心设备
+            'network_device': 'core',  # 核心设备（交换机/路由器）
             'tv': 'entertainment',  # 娱乐设备
             'camera': 'security',  # 安防设备
             'printer': 'peripheral',  # 外设
@@ -249,9 +297,11 @@ class DeviceUtils:
         mac = device.get('mac')
         hostname = device.get('hostname', '')
         
-        # 获取厂商
+        # 获取厂商：优先使用 MAC OUI 映射，如果找不到则使用 nmap 提取的 vendor
         vendor = cls.get_vendor_from_mac(mac)
-        device['vendor'] = vendor or device.get('vendor', '')
+        if not vendor or vendor == 'Unknown':
+            vendor = device.get('vendor', '')  # 使用 nmap 提取的 vendor
+        device['vendor'] = vendor
         
         # 1. 优先保留用户手动设置的主机名（永不覆盖）
         if database and hostname in ('Unknown', 'unknown', ''):
@@ -264,8 +314,9 @@ class DeviceUtils:
                 logger.debug(f"获取历史主机名失败: {e}")
         
         # 2. 获取设备类型（优先使用用户标记）
+        raw_vendor = device.get('vendor', '')  # 保存原始 vendor
         if database:
-            device_type = cls.get_device_type_with_database(vendor, hostname, database, mac)
+            device_type = cls.get_device_type_with_database(vendor, hostname, database, mac, raw_vendor)
         else:
             device_type = cls.get_device_type(vendor, hostname)
         device['device_type'] = device_type

@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  lan-security-monitor:
+    build: .
+    container_name: lan-security-monitor
+    restart: unless-stopped
+    
+    # 使用host网络模式，以便扫描局域网
+    network_mode: host
+    
+    # 权限设置（需要网络扫描权限）
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    
+    # 环境变量
+    environment:
+      - TZ=Asia/Shanghai
+      - CONFIG_FILE=/app/config/config.env
+      # 敏感信息通过环境变量传递（安全）
+      # Bark密钥
+      - BARK_KEY=${BARK_KEY:-}
+      # 爱快路由器密码
+      - IKUAI_PASSWORD=${IKUAI_PASSWORD:-}
+      # 数据库密码（如果使用MySQL）
+      - DB_PASSWORD=${DB_PASSWORD:-}
+      # 配置文件加密密码
+      - CONFIG_ENCRYPT_PASSWORD=${CONFIG_ENCRYPT_PASSWORD:-}
+      # Web界面密码
+      - WEB_PASSWORD=${WEB_PASSWORD:-admin123}
+      # Web界面密钥
+      - WEB_SECRET_KEY=${WEB_SECRET_KEY:-lan-security-monitor-secret-key-2024}
+    
+    # 卷挂载
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+    
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "python.*main.py"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    
+    # 日志配置
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

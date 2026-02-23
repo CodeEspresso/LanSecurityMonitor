@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统设置 - 局域网安全监控系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/style.css" rel="stylesheet">
+    <style>
+        .settings-card {
+            border: none;
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            transition: box-shadow 0.15s ease-in-out;
+        }
+        .settings-card:hover {
+            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.1);
+        }
+        .settings-card .card-header {
+            background: transparent;
+            border-bottom: 1px solid rgba(0,0,0,.125);
+            font-weight: 600;
+            padding: 1rem 1.25rem;
+        }
+        .settings-card .card-header i {
+            margin-right: 0.5rem;
+            color: #0d6efd;
+        }
+        .status-badge {
+            font-size: 0.875rem;
+            padding: 0.35em 0.65em;
+        }
+        .info-table td {
+            padding: 0.5rem 0;
+        }
+        .info-table td:first-child {
+            color: #6c757d;
+            width: 120px;
+        }
+        .form-switch .form-check-input {
+            width: 3em;
+        }
+        .form-switch .form-check-label {
+            margin-left: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="bi bi-shield-lock"></i> 局域网安全监控
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/"><i class="bi bi-speedometer2"></i> 仪表盘</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/devices"><i class="bi bi-pc-display"></i> 设备管理</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/threats"><i class="bi bi-exclamation-triangle"></i> 威胁记录</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/settings"><i class="bi bi-gear"></i> 系统设置</a>
+                    </li>
+                </ul>
+                <ul class="navbar-nav">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-person-circle"></i> <span id="username">Admin</span>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item" href="#" onclick="logout()"><i class="bi bi-box-arrow-right"></i> 登出</a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <div class="row mb-4">
+            <div class="col-12">
+                <h4 class="mb-1"><i class="bi bi-gear me-2"></i>系统设置</h4>
+                <p class="text-muted mb-0 small">配置系统参数、管理账户和通知偏好</p>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <div class="col-lg-4">
+                <div class="card settings-card h-100">
+                    <div class="card-header">
+                        <i class="bi bi-info-circle"></i>系统信息
+                    </div>
+                    <div class="card-body">
+                        <table class="table info-table mb-0">
+                            <tr>
+                                <td>系统版本</td>
+                                <td><span class="badge bg-primary">v1.0.0</span></td>
+                            </tr>
+                            <tr>
+                                <td>设备总数</td>
+                                <td><strong id="total-devices-info">-</strong></td>
+                            </tr>
+                            <tr>
+                                <td>威胁总数</td>
+                                <td><strong id="total-threats-info">-</strong></td>
+                            </tr>
+                            <tr>
+                                <td>最后扫描</td>
+                                <td><strong id="last-check-info">-</strong></td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="card settings-card h-100">
+                    <div class="card-header">
+                        <i class="bi bi-book"></i>学习期状态
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex align-items-center mb-3">
+                            <span class="me-2">当前状态：</span>
+                            <span id="learning-status-text" class="badge status-badge bg-secondary">加载中...</span>
+                        </div>
+                        <div id="learning-details" class="mb-3" style="display: none;">
+                            <div class="small text-muted mb-2">学习进度</div>
+                            <div class="mb-2">
+                                <div class="d-flex justify-content-between small mb-1">
+                                    <span>观察时间</span>
+                                    <span id="behavior-time">0小时</span>
+                                </div>
+                                <div class="progress" style="height: 6px;">
+                                    <div id="time-progress" class="progress-bar bg-primary" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="d-flex justify-content-between small mb-1">
+                                    <span>设备覆盖</span>
+                                    <span><span id="sufficient-devices">0</span>/<span id="device-count">0</span></span>
+                                </div>
+                                <div class="progress" style="height: 6px;">
+                                    <div id="device-progress" class="progress-bar bg-success" style="width: 0%"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <p class="text-muted small mb-3">
+                            <i class="bi bi-lightbulb"></i>
+                            学习期期间只通知严重威胁，避免误报
+                        </p>
+                        <button class="btn btn-outline-warning w-100" onclick="confirmResetLearning()">
+                            <i class="bi bi-arrow-clockwise"></i> 重置学习期
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="card settings-card h-100">
+                    <div class="card-header">
+                        <i class="bi bi-person-lock"></i>账户设置
+                    </div>
+                    <div class="card-body">
+                        <form id="password-form">
+                            <div class="mb-2">
+                                <label class="form-label small text-muted mb-1">当前密码</label>
+                                <input type="password" class="form-control form-control-sm" id="current-password" required>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label small text-muted mb-1">新用户名</label>
+                                <input type="text" class="form-control form-control-sm" id="new-username" placeholder="留空不修改">
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label small text-muted mb-1">新密码</label>
+                                <input type="password" class="form-control form-control-sm" id="new-password" placeholder="留空不修改">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label small text-muted mb-1">确认新密码</label>
+                                <input type="password" class="form-control form-control-sm" id="confirm-password" placeholder="再次输入新密码">
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100 btn-sm">
+                                <i class="bi bi-check-lg"></i> 保存修改
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4 mt-0">
+            <div class="col-12">
+                <div class="card settings-card">
+                    <div class="card-header">
+                        <i class="bi bi-bell"></i>威胁通知设置
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">
+                            <i class="bi bi-info-circle"></i>
+                            选择需要接收 Bark 推送通知的威胁类型
+                        </p>
+                        <div class="row">
+                            <div class="col-md-4 col-sm-6 mb-2">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="notify_unknown_device" checked>
+                                    <label class="form-check-label" for="notify_unknown_device">未知设备接入</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4 col-sm-6 mb-2">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="notify_behavior_anomaly" checked>
+                                    <label class="form-check-label" for="notify_behavior_anomaly">设备行为异常</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4 col-sm-6 mb-2">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="notify_suspicious_port" checked>
+                                    <label class="form-check-label" for="notify_suspicious_port">可疑端口活动</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4 col-sm-6 mb-2">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="notify_bandwidth_anomaly" checked>
+                                    <label class="form-check-label" for="notify_bandwidth_anomaly">带宽使用异常</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4 col-sm-6 mb-2">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="notify_nas_external_access" checked>
+                                    <label class="form-check-label" for="notify_nas_external_access">NAS 外网访问</label>
+                                </div>
+                            </div>
+                        </div>
+                        <hr>
+                        <button class="btn btn-primary btn-sm" onclick="saveNotificationSettings()">
+                            <i class="bi bi-check-lg"></i> 保存通知设置
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="confirm-modal" tabindex="-1">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h6 class="modal-title"><i class="bi bi-exclamation-triangle text-warning me-2"></i>确认重置</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body small">
+                    <p class="mb-2">确定要重置学习期吗？</p>
+                    <p class="text-muted mb-0">系统将重新开始学习设备行为模式。</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-sm btn-warning" onclick="resetLearning()">
+                        <i class="bi bi-arrow-clockwise"></i> 确认重置
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="text-center mt-5 mb-3 text-muted">
+        <small>© 2024 局域网安全监控系统 | Powered by Flask & Bootstrap</small>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/app.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            loadUserInfo();
+            loadLearningStatus();
+            loadSystemInfo();
+            loadNotificationSettings();
+        });
+
+        async function loadLearningStatus() {
+            try {
+                const response = await apiRequest('/api/system/learning-status');
+                
+                if (response && response.success) {
+                    const status = response.status;
+                    
+                    if (status.is_first_run) {
+                        document.getElementById('learning-status-text').className = 'badge status-badge bg-warning';
+                        document.getElementById('learning-status-text').textContent = '学习期中';
+                        document.getElementById('learning-details').style.display = 'block';
+                        
+                        const timeProgress = Math.min(100, (status.behavior_time_hours / 24) * 100);
+                        document.getElementById('behavior-time').textContent = `${(status.behavior_time_hours || 0).toFixed(1)}h`;
+                        document.getElementById('time-progress').style.width = `${timeProgress}%`;
+                        
+                        const deviceProgress = status.device_count > 0 
+                            ? Math.min(100, (status.devices_with_sufficient_data / status.device_count) * 100) 
+                            : 0;
+                        document.getElementById('sufficient-devices').textContent = status.devices_with_sufficient_data || 0;
+                        document.getElementById('device-count').textContent = status.device_count || 0;
+                        document.getElementById('device-progress').style.width = `${deviceProgress}%`;
+                    } else {
+                        document.getElementById('learning-status-text').className = 'badge status-badge bg-success';
+                        document.getElementById('learning-status-text').textContent = '正常运行';
+                        document.getElementById('learning-details').style.display = 'none';
+                    }
+                }
+            } catch (error) {
+                console.error('加载学习期状态失败:', error);
+                document.getElementById('learning-status-text').className = 'badge status-badge bg-danger';
+                document.getElementById('learning-status-text').textContent = '加载失败';
+            }
+        }
+
+        async function loadSystemInfo() {
+            try {
+                const response = await apiRequest('/api/system/status');
+                if (response && response.success) {
+                    document.getElementById('total-devices-info').textContent = response.status.device_count || 0;
+                    document.getElementById('total-threats-info').textContent = response.status.threat_count || 0;
+                    
+                    const lastCheck = response.status.last_check_time;
+                    if (lastCheck) {
+                        document.getElementById('last-check-info').textContent = formatRelativeTime(lastCheck);
+                    } else {
+                        document.getElementById('last-check-info').textContent = '暂无记录';
+                    }
+                }
+            } catch (error) {
+                console.error('加载系统信息失败:', error);
+            }
+        }
+        
+        function formatRelativeTime(dateString) {
+            if (!dateString) return '-';
+            const date = new Date(dateString);
+            const now = new Date();
+            const diff = Math.floor((now - date) / 1000);
+            
+            if (diff < 60) return '刚刚';
+            if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`;
+            if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`;
+            return `${Math.floor(diff / 86400)} 天前`;
+        }
+
+        async function loadNotificationSettings() {
+            try {
+                const response = await apiRequest('/api/threats/notification-settings');
+                if (response && response.success) {
+                    const s = response.settings;
+                    document.getElementById('notify_unknown_device').checked = s.unknown_device !== false;
+                    document.getElementById('notify_behavior_anomaly').checked = s.behavior_anomaly !== false;
+                    document.getElementById('notify_suspicious_port').checked = s.suspicious_port !== false;
+                    document.getElementById('notify_bandwidth_anomaly').checked = s.bandwidth_anomaly !== false;
+                    document.getElementById('notify_nas_external_access').checked = s.nas_external_access !== false;
+                }
+            } catch (error) {
+                console.error('加载通知设置失败:', error);
+            }
+        }
+
+        async function saveNotificationSettings() {
+            try {
+                const settings = {
+                    'unknown_device': document.getElementById('notify_unknown_device').checked,
+                    'behavior_anomaly': document.getElementById('notify_behavior_anomaly').checked,
+                    'suspicious_port': document.getElementById('notify_suspicious_port').checked,
+                    'bandwidth_anomaly': document.getElementById('notify_bandwidth_anomaly').checked,
+                    'nas_external_access': document.getElementById('notify_nas_external_access').checked
+                };
+                
+                const response = await apiRequest('/api/threats/notification-settings', {
+                    method: 'POST',
+                    body: JSON.stringify({ settings: settings })
+                });
+                
+                if (response && response.success) {
+                    showNotification('通知设置已保存', 'success');
+                } else {
+                    showNotification(response?.message || '保存失败', 'danger');
+                }
+            } catch (error) {
+                console.error('保存通知设置失败:', error);
+                showNotification('保存失败', 'danger');
+            }
+        }
+
+        function confirmResetLearning() {
+            new bootstrap.Modal(document.getElementById('confirm-modal')).show();
+        }
+
+        async function resetLearning() {
+            try {
+                const response = await apiRequest('/api/system/reset-learning', { method: 'POST' });
+                if (response && response.success) {
+                    bootstrap.Modal.getInstance(document.getElementById('confirm-modal')).hide();
+                    showNotification('学习期已重置', 'success');
+                    loadLearningStatus();
+                } else {
+                    showNotification(response?.message || '重置失败', 'danger');
+                }
+            } catch (error) {
+                console.error('重置学习期失败:', error);
+                showNotification('重置失败', 'danger');
+            }
+        }
+
+        document.getElementById('password-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const currentPassword = document.getElementById('current-password').value;
+            const newUsername = document.getElementById('new-username').value;
+            const newPassword = document.getElementById('new-password').value;
+            const confirmPassword = document.getElementById('confirm-password').value;
+            
+            if (newPassword && newPassword !== confirmPassword) {
+                showNotification('两次输入的密码不一致', 'danger');
+                return;
+            }
+            if (!newUsername && !newPassword) {
+                showNotification('请输入要修改的用户名或密码', 'warning');
+                return;
+            }
+            
+            try {
+                const response = await apiRequest('/api/system/change-password', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        current_password: currentPassword,
+                        new_username: newUsername,
+                        new_password: newPassword
+                    })
+                });
+                
+                if (response && response.success) {
+                    showNotification('修改成功，即将跳转...', 'success');
+                    setTimeout(() => { window.location.href = '/login'; }, 2000);
+                } else {
+                    showNotification(response?.message || '修改失败', 'danger');
+                }
+            } catch (error) {
+                console.error('修改密码失败:', error);
+                showNotification('修改失败', 'danger');
+            }
+        });
+    </script>
+</body>
+</html>

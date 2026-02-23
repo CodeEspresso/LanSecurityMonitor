@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>设备管理 - 局域网安全监控系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/style.css" rel="stylesheet">
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="bi bi-shield-lock"></i> 局域网安全监控
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">
+                            <i class="bi bi-speedometer2"></i> 仪表盘
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/devices">
+                            <i class="bi bi-pc-display"></i> 设备管理
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/threats">
+                            <i class="bi bi-exclamation-triangle"></i> 威胁记录
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/settings">
+                            <i class="bi bi-gear"></i> 系统设置
+                        </a>
+                    </li>
+                </ul>
+                <ul class="navbar-nav">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-person-circle"></i> <span id="username">Admin</span>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item" href="#" onclick="logout()"><i class="bi bi-box-arrow-right"></i> 登出</a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主内容 -->
+    <div class="container-fluid mt-4">
+        <!-- 页面标题 -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <h2><i class="bi bi-pc-display"></i> 设备管理</h2>
+                <p class="text-muted">管理局域网内的所有设备</p>
+            </div>
+        </div>
+
+        <!-- 筛选和搜索 -->
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <input type="text" class="form-control" id="search-input" placeholder="搜索设备（IP/主机名/MAC）">
+            </div>
+            <div class="col-md-3">
+                <select class="form-select" id="status-filter">
+                    <option value="">所有状态</option>
+                    <option value="online">在线</option>
+                    <option value="offline">离线</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <select class="form-select" id="type-filter">
+                    <option value="">所有类型</option>
+                    <option value="router">路由器</option>
+                    <option value="nas">NAS</option>
+                    <option value="computer">电脑</option>
+                    <option value="phone">手机</option>
+                    <option value="smart_home">智能家居</option>
+                    <option value="unknown">未知</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-primary w-100" onclick="refreshDevices()">
+                    <i class="bi bi-arrow-clockwise"></i> 刷新
+                </button>
+            </div>
+        </div>
+
+        <!-- 设备列表 -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>状态</th>
+                                        <th>IP地址</th>
+                                        <th>主机名</th>
+                                        <th>MAC地址</th>
+                                        <th>设备类型</th>
+                                        <th>厂商</th>
+                                        <th>最后在线</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="devices-table">
+                                    <tr>
+                                        <td colspan="8" class="text-center">
+                                            <div class="loading"></div> 加载中...
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 设备详情模态框 -->
+    <div class="modal fade" id="device-modal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-info-circle"></i> 设备详情
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="device-details">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 标记设备模态框 -->
+    <div class="modal fade" id="mark-device-modal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-tag"></i> 标记设备
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="mark-device-mac">
+                    <div class="mb-3">
+                        <label class="form-label">设备类型</label>
+                        <select class="form-select" id="mark-device-type">
+                            <option value="router">路由器</option>
+                            <option value="nas">NAS</option>
+                            <option value="computer">电脑</option>
+                            <option value="phone">手机</option>
+                            <option value="tablet">平板</option>
+                            <option value="smart_home">智能家居</option>
+                            <option value="iot">IoT设备</option>
+                            <option value="printer">打印机</option>
+                            <option value="camera">摄像头</option>
+                            <option value="tv">智能电视</option>
+                            <option value="game_console">游戏机</option>
+                            <option value="unknown">未知</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">厂商名称（可修改）</label>
+                        <input type="text" class="form-control" id="mark-device-vendor" placeholder="例如：Apple、群晖、小米等">
+                        <small class="text-muted">随机MAC地址可能导致厂商识别错误，可手动修正</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">备注（可选）</label>
+                        <input type="text" class="form-control" id="mark-device-notes" placeholder="例如：客厅电视、公司NAS等">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-success" onclick="markDevice()">
+                        <i class="bi bi-check-lg"></i> 确认标记
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 页脚 -->
+    <footer class="text-center mt-5 mb-3 text-muted">
+        <small>© 2024 局域网安全监控系统 | Powered by Flask & Bootstrap</small>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/app.js"></script>
+    <script>
+        // 页面加载完成后执行
+        document.addEventListener('DOMContentLoaded', function() {
+            loadUserInfo();
+            loadDevices();
+            
+            // 添加搜索和筛选事件监听
+            document.getElementById('search-input').addEventListener('input', filterDevices);
+            document.getElementById('status-filter').addEventListener('change', filterDevices);
+            document.getElementById('type-filter').addEventListener('change', filterDevices);
+        });
+
+        // 加载设备列表
+        async function loadDevices() {
+            try {
+                const response = await apiRequest('/api/devices');
+                
+                if (response && response.success) {
+                    window.allDevices = response.devices;
+                    displayDevices(response.devices);
+                }
+            } catch (error) {
+                console.error('加载设备列表失败:', error);
+                document.getElementById('devices-table').innerHTML = `
+                    <tr>
+                        <td colspan="8" class="text-center text-danger">
+                            <i class="bi bi-exclamation-triangle"></i> 加载失败
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+
+        // 显示设备列表
+        function displayDevices(devices) {
+            const tbody = document.getElementById('devices-table');
+            
+            if (!devices || devices.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="8" class="text-center text-muted">
+                            <div class="empty-state">
+                                <i class="bi bi-pc-display"></i>
+                                <p>暂无设备</p>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+            
+            tbody.innerHTML = devices.map(device => {
+                const displayName = getDisplayName(device);
+                const vendorDisplay = device.vendor && device.vendor !== 'Unknown' ? device.vendor : '<span class="text-muted">-</span>';
+                
+                return `
+                <tr>
+                    <td>
+                        <span class="device-status ${device.is_online ? 'online' : 'offline'}"></span>
+                        ${device.is_online ? '在线' : '离线'}
+                    </td>
+                    <td><code>${device.ip}</code></td>
+                    <td>${displayName}</td>
+                    <td><code>${device.mac}</code></td>
+                    <td>
+                        <span class="badge bg-secondary">${formatDeviceType(device.device_type)}</span>
+                    </td>
+                    <td>${vendorDisplay}</td>
+                    <td>${formatDateTime(device.last_seen)}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary me-1" onclick="showDeviceDetails('${device.mac}')" title="查看详情">
+                            <i class="bi bi-info-circle"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-success" onclick="showMarkDevice('${device.mac}', '${device.device_type || 'unknown'}')" title="标记设备">
+                            <i class="bi bi-tag"></i>
+                        </button>
+                    </td>
+                </tr>
+            `}).join('');
+        }
+        
+        // 获取设备显示名称
+        function getDisplayName(device) {
+            if (device.notes) {
+                return `<span title="备注: ${device.notes}">${device.notes}</span>`;
+            }
+            if (device.hostname && device.hostname !== 'Unknown' && device.hostname !== 'unknown') {
+                return device.hostname;
+            }
+            return `<span class="text-muted">${device.ip}</span>`;
+        }
+
+        // 筛选设备
+        function filterDevices() {
+            const searchTerm = document.getElementById('search-input').value.toLowerCase();
+            const statusFilter = document.getElementById('status-filter').value;
+            const typeFilter = document.getElementById('type-filter').value;
+            
+            let filteredDevices = window.allDevices || [];
+            
+            // 搜索筛选
+            if (searchTerm) {
+                filteredDevices = filteredDevices.filter(device => 
+                    device.ip.toLowerCase().includes(searchTerm) ||
+                    device.hostname.toLowerCase().includes(searchTerm) ||
+                    device.mac.toLowerCase().includes(searchTerm)
+                );
+            }
+            
+            // 状态筛选
+            if (statusFilter) {
+                const isOnline = statusFilter === 'online';
+                filteredDevices = filteredDevices.filter(device => device.is_online === isOnline);
+            }
+            
+            // 类型筛选
+            if (typeFilter) {
+                filteredDevices = filteredDevices.filter(device => device.device_type === typeFilter);
+            }
+            
+            displayDevices(filteredDevices);
+        }
+
+        // 显示设备详情
+        async function showDeviceDetails(mac) {
+            try {
+                const response = await apiRequest(`/api/devices/${mac}`);
+                
+                if (response && response.success) {
+                    const device = response.device;
+                    const behaviors = response.behaviors || [];
+                    
+                    const detailsHtml = `
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>基本信息</h6>
+                                <table class="table table-sm">
+                                    <tr>
+                                        <td><strong>IP地址:</strong></td>
+                                        <td><code>${device.ip}</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>MAC地址:</strong></td>
+                                        <td><code>${device.mac}</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>主机名:</strong></td>
+                                        <td>${device.hostname || 'Unknown'}</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>设备类型:</strong></td>
+                                        <td>${formatDeviceType(device.device_type)}</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>厂商:</strong></td>
+                                        <td>${device.vendor || 'Unknown'}</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>状态:</strong></td>
+                                        <td>
+                                            <span class="device-status ${device.is_online ? 'online' : 'offline'}"></span>
+                                            ${device.is_online ? '在线' : '离线'}
+                                        </td>
+                                    </tr>
+                                </table>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>时间信息</h6>
+                                <table class="table table-sm">
+                                    <tr>
+                                        <td><strong>首次发现:</strong></td>
+                                        <td>${formatDateTime(device.first_seen)}</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>最后在线:</strong></td>
+                                        <td>${formatDateTime(device.last_seen)}</td>
+                                    </tr>
+                                </table>
+                            </div>
+                        </div>
+                        ${behaviors.length > 0 ? `
+                            <hr>
+                            <h6>最近行为记录（7天）</h6>
+                            <div class="table-responsive" style="max-height: 200px; overflow-y: auto;">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>时间</th>
+                                            <th>状态</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${behaviors.slice(0, 10).map(b => `
+                                            <tr>
+                                                <td>${formatDateTime(b.timestamp)}</td>
+                                                <td>${b.status || 'N/A'}</td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ` : ''}
+                    `;
+                    
+                    document.getElementById('device-details').innerHTML = detailsHtml;
+                    
+                    const modal = new bootstrap.Modal(document.getElementById('device-modal'));
+                    modal.show();
+                }
+            } catch (error) {
+                console.error('获取设备详情失败:', error);
+                showNotification('获取设备详情失败', 'danger');
+            }
+        }
+
+        // 刷新设备列表
+        function refreshDevices() {
+            loadDevices();
+            showNotification('设备列表已刷新', 'success');
+        }
+
+        // 格式化设备类型
+        function formatDeviceType(type) {
+            const typeMap = {
+                'router': '路由器',
+                'nas': 'NAS',
+                'computer': '电脑',
+                'phone': '手机',
+                'tablet': '平板',
+                'smart_home': '智能家居',
+                'iot': 'IoT设备',
+                'printer': '打印机',
+                'camera': '摄像头',
+                'tv': '智能电视',
+                'game_console': '游戏机',
+                'unknown': '未知'
+            };
+            return typeMap[type] || type;
+        }
+
+        // 显示标记设备模态框
+        function showMarkDevice(mac, currentType) {
+            const device = (window.allDevices || []).find(d => d.mac === mac);
+            
+            document.getElementById('mark-device-mac').value = mac;
+            document.getElementById('mark-device-type').value = currentType || 'unknown';
+            document.getElementById('mark-device-vendor').value = device?.vendor || '';
+            document.getElementById('mark-device-notes').value = '';
+            
+            const modal = new bootstrap.Modal(document.getElementById('mark-device-modal'));
+            modal.show();
+        }
+
+        // 标记设备
+        async function markDevice() {
+            const mac = document.getElementById('mark-device-mac').value;
+            const deviceType = document.getElementById('mark-device-type').value;
+            const vendor = document.getElementById('mark-device-vendor').value;
+            const notes = document.getElementById('mark-device-notes').value;
+            
+            try {
+                const response = await apiRequest(`/api/devices/${mac}/mark`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        device_type: deviceType,
+                        vendor: vendor,
+                        notes: notes
+                    })
+                });
+                
+                if (response && response.success) {
+                    bootstrap.Modal.getInstance(document.getElementById('mark-device-modal')).hide();
+                    showNotification('设备已标记', 'success');
+                    loadDevices();
+                } else {
+                    showNotification(response?.message || '标记失败', 'danger');
+                }
+            } catch (error) {
+                console.error('标记设备失败:', error);
+                showNotification('标记设备失败', 'danger');
+            }
+        }
+    </script>
+</body>
+</html>

@@ -15,6 +15,7 @@ from ..monitors.device_analyzer import DeviceAnalyzer
 from ..monitors.nas_monitor import NASMonitor
 from ..monitors.behavior_analyzer import BehaviorAnalyzer
 from ..monitors.bandwidth_monitor import BandwidthMonitor
+from ..monitors.arp_monitor import ARPMonitor
 from ..notifiers.bark_notifier import BarkNotifier
 from ..utils.database import Database
 from ..utils.metrics_exporter import MetricsExporter
@@ -40,6 +41,7 @@ class SecurityMonitor:
         self.bandwidth_monitor = BandwidthMonitor(config)
         self.metrics_exporter = MetricsExporter(config, self.database)
         self.ikuai_api = IKuaiAPI(config, secure_config)
+        self.arp_monitor = ARPMonitor(config, self.database)
         
         # 状态存储
         self.known_devices = {}
@@ -97,6 +99,9 @@ class SecurityMonitor:
         # 初始化爱快路由器API
         self.ikuai_api.initialize()
         
+        # 初始化ARP监控器
+        self.arp_monitor.initialize()
+        
         self.logger.info("监控系统初始化完成")
     
     def run_security_check(self):
@@ -121,24 +126,32 @@ class SecurityMonitor:
             if offline_devices:
                 self.logger.info(f"发现 {len(offline_devices)} 个设备离线")
             
-            # 3. 威胁检测
-            self.logger.info("步骤3: 执行威胁检测...")
+            # 3. ARP绑定检测（新增）
+            self.logger.info("步骤3: ARP绑定检测...")
+            arp_anomalies = self._detect_arp_anomalies(current_devices)
+            
+            if arp_anomalies:
+                self.logger.warning(f"发现 {len(arp_anomalies)} 个ARP绑定异常")
+                self._handle_arp_anomalies(arp_anomalies)
+            
+            # 4. 威胁检测
+            self.logger.info("步骤4: 执行威胁检测...")
             threats = self.threat_detector.detect_threats(current_devices, self.known_devices)
             
             if threats:
                 self.logger.warning(f"发现 {len(threats)} 个潜在威胁")
                 self._handle_threats(threats)
             
-            # 4. 深度分析可疑设备
-            self.logger.info("步骤4: 深度分析可疑设备...")
+            # 5. 深度分析可疑设备
+            self.logger.info("步骤5: 深度分析可疑设备...")
             suspicious_devices = [t['device'] for t in threats if t.get('severity') == 'high']
             
             if suspicious_devices:
                 analysis_results = self.device_analyzer.analyze_devices(suspicious_devices)
                 self._handle_analysis_results(analysis_results)
             
-            # 5. NAS设备监控
-            self.logger.info("步骤5: NAS设备监控...")
+            # 6. NAS设备监控
+            self.logger.info("步骤6: NAS设备监控...")
             nas_anomalies = self.nas_monitor.monitor_nas_devices(current_devices)
             
             if nas_anomalies:
@@ -146,8 +159,8 @@ class SecurityMonitor:
                 for anomaly in nas_anomalies:
                     self._handle_threats([anomaly])
             
-            # 6. 设备行为分析
-            self.logger.info("步骤6: 设备行为分析...")
+            # 7. 设备行为分析
+            self.logger.info("步骤7: 设备行为分析...")
             behavior_anomalies = self.behavior_analyzer.analyze_device_behavior(current_devices)
             
             if behavior_anomalies:
@@ -155,8 +168,8 @@ class SecurityMonitor:
                 for anomaly in behavior_anomalies:
                     self._handle_threats([anomaly])
             
-            # 7. 带宽使用监控
-            self.logger.info("步骤7: 带宽使用监控...")
+            # 8. 带宽使用监控
+            self.logger.info("步骤8: 带宽使用监控...")
             bandwidth_anomalies = self.bandwidth_monitor.monitor_bandwidth(current_devices)
             
             if bandwidth_anomalies:
@@ -164,8 +177,8 @@ class SecurityMonitor:
                 for anomaly in bandwidth_anomalies:
                     self._handle_threats([anomaly])
             
-            # 8. 更新设备状态
-            self.logger.info("步骤8: 更新设备状态...")
+            # 9. 更新设备状态
+            self.logger.info("步骤9: 更新设备状态...")
             self._update_device_status(current_devices)
             
             # 9. 检查是否应该退出首次运行模式
@@ -186,6 +199,137 @@ class SecurityMonitor:
         except Exception as e:
             self.logger.error(f"安全检查失败: {str(e)}", exc_info=True)
             raise
+    
+    def _detect_arp_anomalies(self, current_devices: Dict) -> List[Dict]:
+        """检测ARP绑定异常
+        
+        Args:
+            current_devices: 当前设备字典
+            
+        Returns:
+            ARP异常列表
+        """
+        self.arp_monitor.refresh_arp_table()
+        
+        anomalies = []
+        
+        for mac, device in current_devices.items():
+            ip = device.get('ip')
+            if not ip:
+                continue
+            
+            binding_result = self.arp_monitor.check_binding_changes(ip, mac)
+            
+            if not binding_result['is_normal']:
+                anomalies.append({
+                    'type': 'arp_binding_anomaly',
+                    'severity': 'high',
+                    'device': device,
+                    'device_ip': ip,
+                    'device_mac': mac,
+                    'description': binding_result['details'],
+                    'risk_score': binding_result['risk_score'],
+                    'anomaly_type': binding_result['anomaly_type']
+                })
+            
+            if not device.get('ip'):
+                continue
+            
+            mac_flapping = self.arp_monitor.detect_mac_flapping(mac)
+            if mac_flapping['is_flapping']:
+                anomalies.append({
+                    'type': 'mac_flapping',
+                    'severity': 'high',
+                    'device': device,
+                    'device_ip': ip,
+                    'device_mac': mac,
+                    'description': f"MAC地址 {mac} 在短时间内变化 {mac_flapping['change_count']} 次，可能存在MAC欺骗",
+                    'risk_score': mac_flapping['risk_score']
+                })
+        
+        return anomalies
+    
+    def _handle_arp_anomalies(self, anomalies: List[Dict]):
+        """处理ARP异常
+        
+        Args:
+            anomalies: ARP异常列表
+        """
+        auto_block_enabled = self.config.get_bool('AUTO_BLOCK_ENABLED', False)
+        auto_block_threshold = self.config.get_int('AUTO_BLOCK_THRESHOLD', 80)
+        
+        for anomaly in anomalies:
+            device = anomaly.get('device', {})
+            ip = device.get('ip', '')
+            mac = device.get('mac', '')
+            description = anomaly.get('description', '')
+            risk_score = anomaly.get('risk_score', 0)
+            
+            self.logger.warning(f"ARP异常: {description}")
+            
+            self.database.save_threat({
+                'type': anomaly.get('type', 'arp_anomaly'),
+                'severity': anomaly.get('severity', 'high'),
+                'device': device,
+                'description': description
+            })
+            
+            if auto_block_enabled and risk_score >= auto_block_threshold:
+                if not self.database.is_device_blocked(mac):
+                    self.logger.warning(f"自动封禁高风险设备: {ip} ({mac}), 风险评分: {risk_score}")
+                    self._auto_block_device(device, description, risk_score)
+                else:
+                    self.logger.info(f"设备 {mac} 已在封禁中")
+            
+            notify_enabled = self._is_notification_enabled('arp_anomaly')
+            if notify_enabled:
+                self.bark_notifier.send_alert(
+                    title=f"⚠️ ARP绑定异常 - {anomaly.get('type', 'arp')}",
+                    message=f"设备: {ip} ({mac})\n风险评分: {risk_score}\n详情: {description}",
+                    severity='high',
+                    device=device,
+                    is_threat=True
+                )
+    
+    def _auto_block_device(self, device: Dict, reason: str, risk_score: int):
+        """自动封禁设备
+        
+        Args:
+            device: 设备信息
+            reason: 封禁原因
+            risk_score: 风险评分
+        """
+        mac = device.get('mac')
+        ip = device.get('ip', '')
+        vendor = device.get('vendor', '')
+        
+        full_reason = f"{reason} (风险评分: {risk_score})"
+        
+        self.database.block_device(
+            mac=mac,
+            ip=ip,
+            vendor=vendor,
+            reason=full_reason,
+            block_type='auto',
+            blocked_by='system'
+        )
+        
+        success = self.ikuai_api.add_device_to_blacklist(
+            mac=mac,
+            ip=ip,
+            reason=f"安全监控自动封禁 - {reason}"
+        )
+        
+        if success:
+            self.bark_notifier.send_alert(
+                title="🔒 设备已自动封禁",
+                message=f"设备 {ip} ({mac}) 因风险评分过高已被自动封禁\n原因: {full_reason}",
+                severity='critical',
+                device=device,
+                is_threat=True
+            )
+        else:
+            self.logger.error(f"自动封禁设备失败: {ip} ({mac})")
     
     def _detect_device_changes(self, current_devices: Dict) -> tuple:
         """检测设备变化"""

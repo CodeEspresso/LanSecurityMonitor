@@ -77,6 +77,16 @@ LOG_LEVEL=INFO                        # 日志级别
 # 威胁检测配置
 ENABLE_AUTO_ISOLATE=true              # 是否自动隔离高风险设备
 ALERT_THRESHOLD=medium                # 告警阈值（low/medium/high/critical）
+
+# 爱快路由器配置（用于设备封禁）
+IKUAI_URL=http://192.168.1.1         # 爱快路由器地址
+IKUAI_PORT=80                         # 爱快路由器端口
+IKUAI_USERNAME=admin                  # 爱快路由器用户名
+IKUAI_PASSWORD=your_password         # 爱快路由器密码
+
+# 自动封禁配置
+AUTO_BLOCK_ENABLED=false              # 是否启用自动封禁
+AUTO_BLOCK_THRESHOLD=80               # 自动封禁风险阈值（0-100）
 ```
 
 ## 项目结构
@@ -92,6 +102,11 @@ LanSecurityMonitor/
 │   │   ├── network_scanner.py       # 网络扫描器
 │   │   ├── threat_detector.py       # 威胁检测器
 │   │   ├── device_analyzer.py       # 设备分析器
+│   │   ├── device_risk_analyzer.py # 设备风险分析器
+│   │   ├── behavior_analyzer.py     # 行为分析器
+│   │   ├── bandwidth_monitor.py    # 带宽监控器
+│   │   ├── nas_monitor.py          # NAS监控器
+│   │   ├── arp_monitor.py          # ARP绑定监控器
 │   │   └── __init__.py
 │   ├── notifiers/
 │   │   ├── bark_notifier.py         # Bark通知
@@ -100,6 +115,9 @@ LanSecurityMonitor/
 │       ├── config.py                # 配置管理
 │       ├── logger.py                # 日志工具
 │       ├── database.py              # 数据库工具
+│       ├── ikuai_api.py            # 爱快路由器API
+│       ├── device_utils.py          # 设备工具
+│       ├── metrics_exporter.py      # 指标导出
 │       └── __init__.py
 ├── config/
 │   └── config.env.example           # 配置模板
@@ -128,7 +146,9 @@ LanSecurityMonitor/
 - 未知设备接入
 - 异常端口开放
 - 可疑网络行为
-- 设备指纹异常
+- ARP绑定异常（IP-MAC绑定变化、MAC抖动）
+- NAS异常访问
+- 带宽使用异常
 
 ### 3. 设备分析
 
@@ -141,10 +161,23 @@ LanSecurityMonitor/
 ### 4. 自动响应
 
 根据威胁等级自动响应：
-- **Critical**: 自动隔离设备
+- **Critical**: 自动隔离设备（需启用自动封禁）
 - **High**: 发送紧急通知
 - **Medium**: 记录并监控
 - **Low**: 仅记录
+
+### 5. ARP绑定监控
+
+实时监控网络ARP表，检测：
+- IP-MAC绑定变化（识别ARP欺骗攻击）
+- MAC地址抖动（识别MAC随机化攻击）
+- 自动封禁高风险设备（需配置爱快路由器）
+
+### 6. ML风险评估
+
+使用机器学习算法增强风险评估：
+- Random Forest: 设备风险评分
+- Isolation Forest: 行为异常检测
 
 ## Bark通知配置
 

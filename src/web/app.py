@@ -483,6 +483,77 @@ class WebApp:
                 logger.error(f"保存ML设置失败: {str(e)}")
                 return jsonify({'success': False, 'message': str(e)}), 500
         
+        @self.app.route('/api/settings/auto-block', methods=['GET'])
+        @login_required
+        def api_get_auto_block_settings():
+            """获取自动封禁设置"""
+            try:
+                auto_block_enabled = self.config.get_bool('AUTO_BLOCK_ENABLED', False)
+                auto_block_threshold = self.config.get_int('AUTO_BLOCK_THRESHOLD', 80)
+                
+                return jsonify({
+                    'success': True,
+                    'settings': {
+                        'auto_block_enabled': auto_block_enabled,
+                        'auto_block_threshold': auto_block_threshold
+                    }
+                })
+            except Exception as e:
+                logger.error(f"获取自动封禁设置失败: {str(e)}")
+                return jsonify({'success': False, 'message': str(e)}), 500
+        
+        @self.app.route('/api/settings/auto-block', methods=['POST'])
+        @login_required
+        def api_save_auto_block_settings():
+            """保存自动封禁设置"""
+            try:
+                data = request.get_json()
+                settings = data.get('settings', {})
+                
+                config_file = self.config.config_file
+                
+                config_lines = []
+                if os.path.exists(config_file):
+                    with open(config_file, 'r', encoding='utf-8') as f:
+                        config_lines = f.readlines()
+                
+                settings_to_save = {
+                    'AUTO_BLOCK_ENABLED': str(settings.get('auto_block_enabled', False)).lower(),
+                    'AUTO_BLOCK_THRESHOLD': str(settings.get('auto_block_threshold', 80))
+                }
+                
+                existing_keys = set()
+                new_lines = []
+                for line in config_lines:
+                    stripped = line.strip()
+                    key_found = False
+                    for key in settings_to_save:
+                        if stripped.startswith(f'{key}='):
+                            new_lines.append(f'{key}={settings_to_save[key]}\n')
+                            existing_keys.add(key)
+                            key_found = True
+                            break
+                    if not key_found:
+                        new_lines.append(line)
+                
+                for key, value in settings_to_save.items():
+                    if key not in existing_keys:
+                        new_lines.append(f'{key}={value}\n')
+                
+                with open(config_file, 'w', encoding='utf-8') as f:
+                    f.writelines(new_lines)
+                
+                self.config._load_config()
+                
+                logger.info(f"自动封禁设置已更新: {settings_to_save}")
+                return jsonify({
+                    'success': True,
+                    'message': '自动封禁设置已保存'
+                })
+            except Exception as e:
+                logger.error(f"保存自动封禁设置失败: {str(e)}")
+                return jsonify({'success': False, 'message': str(e)}), 500
+        
         # ==================== 系统状态API ====================
         
         @self.app.route('/api/system/status')
@@ -602,6 +673,82 @@ class WebApp:
                 })
             except Exception as e:
                 logger.error(f"标记设备失败: {str(e)}")
+                return jsonify({'success': False, 'message': str(e)}), 500
+        
+        @self.app.route('/api/blocked-devices', methods=['GET'])
+        @login_required
+        def api_get_blocked_devices():
+            """获取封禁设备列表"""
+            try:
+                active_only = request.args.get('active_only', 'true').lower() == 'true'
+                blocked_devices = self.database.get_blocked_devices(active_only=active_only)
+                return jsonify({
+                    'success': True,
+                    'blocked_devices': blocked_devices
+                })
+            except Exception as e:
+                logger.error(f"获取封禁设备失败: {str(e)}")
+                return jsonify({'success': False, 'message': str(e)}), 500
+        
+        @self.app.route('/api/devices/<mac>/block', methods=['POST'])
+        @login_required
+        def api_block_device(mac):
+            """手动封禁设备"""
+            try:
+                data = request.get_json()
+                reason = data.get('reason', '手动封禁')
+                auto_unblock_hours = data.get('auto_unblock_hours')
+                
+                devices = self.database.load_all_devices()
+                device = devices.get(mac)
+                
+                if not device:
+                    return jsonify({'success': False, 'message': '设备不存在'}), 404
+                
+                self.database.block_device(
+                    mac=mac,
+                    ip=device.get('ip'),
+                    vendor=device.get('vendor'),
+                    reason=reason,
+                    block_type='manual',
+                    blocked_by='manual',
+                    auto_unblock_hours=auto_unblock_hours
+                )
+                
+                from ..utils.ikuai_api import IKuaiAPI
+                from ..utils.config import Config
+                ikuai = IKuaiAPI(Config(), self.secure_config if hasattr(self, 'secure_config') else None)
+                ikuai.add_device_to_blacklist(
+                    mac=mac,
+                    ip=device.get('ip', ''),
+                    reason=f"手动封禁: {reason}"
+                )
+                
+                logger.info(f"设备 {mac} 已手动封禁")
+                return jsonify({'success': True, 'message': '设备已封禁'})
+            except Exception as e:
+                logger.error(f"封禁设备失败: {str(e)}")
+                return jsonify({'success': False, 'message': str(e)}), 500
+        
+        @self.app.route('/api/devices/<mac>/unblock', methods=['POST'])
+        @login_required
+        def api_unblock_device(mac):
+            """手动解禁设备"""
+            try:
+                data = request.get_json()
+                notes = data.get('notes', '')
+                
+                self.database.unblock_device(mac, unblocked_by='manual', notes=notes)
+                
+                from ..utils.ikuai_api import IKuaiAPI
+                from ..utils.config import Config
+                ikuai = IKuaiAPI(Config(), self.secure_config if hasattr(self, 'secure_config') else None)
+                ikuai.remove_device_from_blacklist(mac)
+                
+                logger.info(f"设备 {mac} 已手动解禁")
+                return jsonify({'success': True, 'message': '设备已解禁'})
+            except Exception as e:
+                logger.error(f"解禁设备失败: {str(e)}")
                 return jsonify({'success': False, 'message': str(e)}), 500
     
     def _is_device_online(self, last_seen: str, threshold_seconds: int = 600) -> bool:

@@ -8,7 +8,7 @@ import os
 import json
 import sqlite3
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 
 
@@ -702,29 +702,32 @@ class Database:
             # 获取总数
             total = self.get_threats_count()
             
+            # 计算日期边界
+            cutoff_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+            
             # 获取最近N天的威胁数量
             cursor.execute('''
                 SELECT COUNT(*) FROM threats 
-                WHERE timestamp >= datetime('now', '-' || ? || ' days')
-            ''', (days,))
+                WHERE timestamp >= ?
+            ''', (cutoff_date,))
             recent_count = cursor.fetchone()[0]
             
             # 按严重程度统计
             cursor.execute('''
                 SELECT severity, COUNT(*) as count 
                 FROM threats 
-                WHERE timestamp >= datetime('now', '-' || ? || ' days')
+                WHERE timestamp >= ?
                 GROUP BY severity
-            ''', (days,))
+            ''', (cutoff_date,))
             severity_stats = {row[0]: row[1] for row in cursor.fetchall()}
             
             # 按类型统计
             cursor.execute('''
-                SELECT type, COUNT(*) as count 
+                SELECT threat_type, COUNT(*) as count 
                 FROM threats 
-                WHERE timestamp >= datetime('now', '-' || ? || ' days')
-                GROUP BY type
-            ''', (days,))
+                WHERE timestamp >= ?
+                GROUP BY threat_type
+            ''', (cutoff_date,))
             type_stats = {row[0]: row[1] for row in cursor.fetchall()}
             
             return {

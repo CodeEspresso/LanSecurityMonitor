@@ -70,13 +70,13 @@ class BehaviorAnalyzer:
                 self.logger.debug(f"跳过关键设备: {device.get('hostname', mac)}")
                 continue
             
-            # 检查是否有足够的历史数据
+            # 先记录当前行为（即使历史不足也记录，逐步积累）
+            self._record_device_behavior(mac, device)
+            
+            # 检查是否有足够的历史数据进行分析
             if not self._has_sufficient_history(mac):
                 self.logger.debug(f"设备 {mac} 历史数据不足，跳过分析")
                 continue
-            
-            # 记录当前行为
-            self._record_device_behavior(mac, device)
             
             # 分析行为模式
             behavior_pattern = self._get_device_behavior_pattern(mac)

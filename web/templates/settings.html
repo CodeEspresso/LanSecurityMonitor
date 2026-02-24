@@ -236,11 +236,60 @@
                                     <label class="form-check-label" for="notify_nas_external_access">NAS 外网访问</label>
                                 </div>
                             </div>
+                            <div class="col-md-4 col-sm-6 mb-2">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="notify_arp_anomaly" checked>
+                                    <label class="form-check-label" for="notify_arp_anomaly">ARP绑定异常</label>
+                                </div>
+                            </div>
                         </div>
                         <hr>
                         <button class="btn btn-primary btn-sm" onclick="saveNotificationSettings()">
                             <i class="bi bi-check-lg"></i> 保存通知设置
                         </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4 mt-0">
+            <div class="col-12">
+                <div class="card settings-card">
+                    <div class="card-header">
+                        <i class="bi bi-shield-lock"></i>自动封禁设置
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">
+                            <i class="bi bi-info-circle"></i>
+                            配置自动封禁高风险设备的规则（需要爱快路由器API）
+                        </p>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="auto_block_enabled">
+                                    <label class="form-check-label fw-semibold" for="auto_block_enabled">启用自动封禁</label>
+                                </div>
+                                <small class="text-muted">检测到高风险设备时自动添加到路由器黑名单</small>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label small text-muted mb-1">自动封禁风险阈值</label>
+                                <input type="number" class="form-control form-control-sm" id="auto_block_threshold" 
+                                       min="0" max="100" value="80" placeholder="0-100">
+                                <small class="text-muted">风险评分达到此值时自动封禁（建议80分以上）</small>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div>
+                                <span class="text-muted small">封禁设备数：</span>
+                                <span id="blocked-count" class="badge bg-danger">0</span>
+                            </div>
+                            <button class="btn btn-primary btn-sm" onclick="saveAutoBlockSettings()">
+                                <i class="bi bi-check-lg"></i> 保存设置
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -582,6 +631,48 @@
         }
 
         loadMLSettings();
+        
+        async function loadAutoBlockSettings() {
+            try {
+                const response = await apiRequest('/api/settings/auto-block');
+                if (response && response.success) {
+                    document.getElementById('auto_block_enabled').checked = response.settings.auto_block_enabled || false;
+                    document.getElementById('auto_block_threshold').value = response.settings.auto_block_threshold || 80;
+                }
+                
+                const blockedResponse = await apiRequest('/api/blocked-devices?active_only=true');
+                if (blockedResponse && blockedResponse.success) {
+                    document.getElementById('blocked-count').textContent = blockedResponse.blocked_devices?.length || 0;
+                }
+            } catch (error) {
+                console.error('加载自动封禁设置失败:', error);
+            }
+        }
+        
+        async function saveAutoBlockSettings() {
+            try {
+                const settings = {
+                    'auto_block_enabled': document.getElementById('auto_block_enabled').checked,
+                    'auto_block_threshold': parseInt(document.getElementById('auto_block_threshold').value) || 80
+                };
+                
+                const response = await apiRequest('/api/settings/auto-block', {
+                    method: 'POST',
+                    body: JSON.stringify({ settings: settings })
+                });
+                
+                if (response && response.success) {
+                    showNotification('自动封禁设置已保存', 'success');
+                } else {
+                    showNotification(response?.message || '保存失败', 'danger');
+                }
+            } catch (error) {
+                console.error('保存自动封禁设置失败:', error);
+                showNotification('保存失败', 'danger');
+            }
+        }
+        
+        loadAutoBlockSettings();
     </script>
 </body>
 </html>

@@ -148,12 +148,56 @@ class Database:
             )
         ''')
 
+        # 设备封禁记录表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS blocked_devices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mac TEXT NOT NULL,
+                ip TEXT,
+                vendor TEXT,
+                reason TEXT,
+                block_type TEXT DEFAULT 'manual',
+                blocked_at TEXT,
+                blocked_by TEXT DEFAULT 'system',
+                auto_unblock_at TEXT,
+                is_active INTEGER DEFAULT 1,
+                unblocked_at TEXT,
+                unblocked_by TEXT,
+                notes TEXT
+            )
+        ''')
+
         self.conn.commit()
     
     def load_known_devices(self) -> Dict:
         """加载已知设备"""
         cursor = self.conn.cursor()
         cursor.execute('SELECT * FROM devices WHERE is_known = 1')
+        
+        devices = {}
+        for row in cursor.fetchall():
+            mac = row[0]
+            devices[mac] = {
+                'mac': mac,
+                'ip': row[1],
+                'hostname': row[2],
+                'vendor': row[3],
+                'os_type': row[4],
+                'device_type': row[5],
+                'category': row[6],
+                'risk_level': row[7],
+                'first_seen': row[8],
+                'last_seen': row[9],
+                'is_known': bool(row[10]),
+                'notes': row[11]
+            }
+        
+        return devices
+    
+    def load_all_devices(self) -> Dict:
+        """加载所有设备"""
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT * FROM devices')
         
         devices = {}
         for row in cursor.fetchall():
@@ -349,6 +393,120 @@ class Database:
         """关闭数据库连接"""
         if self.conn:
             self.conn.close()
+    
+    def block_device(self, mac: str, ip: str = None, vendor: str = None, 
+                     reason: str = '', block_type: str = 'manual', 
+                     blocked_by: str = 'system', auto_unblock_hours: int = None) -> int:
+        """封禁设备
+        
+        Args:
+            mac: MAC地址
+            ip: IP地址
+            vendor: 厂商
+            reason: 封禁原因
+            block_type: 封禁类型 (manual/auto)
+            blocked_by: 封禁者 (system/manual)
+            auto_unblock_hours: 自动解封小时数，None表示不自动解封
+            
+        Returns:
+            封禁记录ID
+        """
+        cursor = self.conn.cursor()
+        
+        cursor.execute('SELECT id FROM blocked_devices WHERE mac = ? AND is_active = 1', (mac,))
+        existing = cursor.fetchone()
+        
+        if existing:
+            self.logger.info(f"设备 {mac} 已在封禁中，跳过")
+            return existing[0]
+        
+        auto_unblock_at = None
+        if auto_unblock_hours:
+            from datetime import timedelta
+            auto_unblock_at = (datetime.now() + timedelta(hours=auto_unblock_hours)).isoformat()
+        
+        cursor.execute('''
+            INSERT INTO blocked_devices 
+            (mac, ip, vendor, reason, block_type, blocked_by, blocked_at, auto_unblock_at, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+        ''', (mac, ip, vendor, reason, block_type, blocked_by, datetime.now().isoformat(), auto_unblock_at))
+        
+        self.conn.commit()
+        return cursor.lastrowid
+    
+    def unblock_device(self, mac: str, unblocked_by: str = 'manual', notes: str = '') -> bool:
+        """解禁设备
+        
+        Args:
+            mac: MAC地址
+            unblocked_by: 解禁者
+            notes: 备注
+            
+        Returns:
+            是否成功
+        """
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            UPDATE blocked_devices 
+            SET is_active = 0, unblocked_at = ?, unblocked_by = ?, notes = ?
+            WHERE mac = ? AND is_active = 1
+        ''', (datetime.now().isoformat(), unblocked_by, notes, mac))
+        
+        self.conn.commit()
+        return cursor.rowcount > 0
+    
+    def get_blocked_devices(self, active_only: bool = True) -> List[Dict]:
+        """获取封禁设备列表
+        
+        Args:
+            active_only: 仅返回活跃封禁
+            
+        Returns:
+            封禁设备列表
+        """
+        cursor = self.conn.cursor()
+        
+        if active_only:
+            cursor.execute('SELECT * FROM blocked_devices WHERE is_active = 1 ORDER BY blocked_at DESC')
+        else:
+            cursor.execute('SELECT * FROM blocked_devices ORDER BY blocked_at DESC')
+        
+        rows = cursor.fetchall()
+        
+        columns = ['id', 'mac', 'ip', 'vendor', 'reason', 'block_type', 
+                   'blocked_at', 'blocked_by', 'auto_unblock_at', 
+                   'is_active', 'unblocked_at', 'unblocked_by', 'notes']
+        
+        return [dict(zip(columns, row)) for row in rows]
+    
+    def is_device_blocked(self, mac: str) -> bool:
+        """检查设备是否被封禁
+        
+        Args:
+            mac: MAC地址
+            
+        Returns:
+            是否被封禁
+        """
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT COUNT(*) FROM blocked_devices WHERE mac = ? AND is_active = 1', (mac,))
+        return cursor.fetchone()[0] > 0
+    
+    def cleanup_expired_blocks(self) -> int:
+        """清理过期封禁（自动解封时间已过）
+        
+        Returns:
+            清理数量
+        """
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            UPDATE blocked_devices 
+            SET is_active = 0, unblocked_at = ?, unblocked_by = ?, notes = ?
+            WHERE is_active = 1 AND auto_unblock_at IS NOT NULL AND auto_unblock_at < ?
+        ''', (datetime.now().isoformat(), 'auto', '自动解封过期', datetime.now().isoformat()))
+        
+        self.conn.commit()
+        return cursor.rowcount
     
     def get_system_status(self, key: str, default: str = None) -> Optional[str]:
         """获取系统状态

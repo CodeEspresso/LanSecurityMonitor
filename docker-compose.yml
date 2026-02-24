@@ -35,7 +35,7 @@ services:
     
     # 卷挂载
     volumes:
-      - ./config:/app/config:ro
+      - ./config:/app/config
       - ./data:/app/data
       - ./logs:/app/logs
     

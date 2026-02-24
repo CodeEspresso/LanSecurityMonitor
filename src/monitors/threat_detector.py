@@ -122,6 +122,64 @@ class ThreatDetector:
                         'description': f"未知设备接入: {device.get('ip')} ({mac})"
                     })
         
+        threats.extend(self._detect_abnormal_ports(devices))
+        
+        return threats
+    
+    def _detect_abnormal_ports(self, devices: Dict) -> List[Dict]:
+        """检测异常端口
+        
+        Args:
+            devices: 设备字典
+            
+        Returns:
+            威胁列表
+        """
+        threats = []
+        
+        for mac, device in devices.items():
+            if mac in self.whitelist_macs:
+                continue
+            
+            open_ports = device.get('open_ports', [])
+            port_details = device.get('port_details', [])
+            
+            if not open_ports:
+                continue
+            
+            suspicious_found = []
+            for port in open_ports:
+                if str(port) in [str(p) for p in self.suspicious_ports]:
+                    suspicious_found.append(port)
+            
+            if suspicious_found:
+                severity = 'high' if len(suspicious_found) > 1 else 'medium'
+                threats.append({
+                    'device': device,
+                    'type': 'suspicious_port',
+                    'severity': severity,
+                    'description': f"检测到可疑端口: {suspicious_found} 在设备 {device.get('ip')}",
+                    'risk_score': 80,
+                    'risk_level': 'high',
+                    'suspicious_ports': suspicious_found,
+                    'open_ports': open_ports
+                })
+                self.logger.warning(f"⚠️ 设备 {device.get('ip')} 开放可疑端口: {suspicious_found}")
+            
+            port_count = device.get('port_count', 0)
+            if port_count >= 5:
+                threats.append({
+                    'device': device,
+                    'type': 'many_open_ports',
+                    'severity': 'medium',
+                    'description': f"设备 {device.get('ip')} 开放过多端口: {port_count}个",
+                    'risk_score': 60,
+                    'risk_level': 'medium',
+                    'open_ports': open_ports,
+                    'port_count': port_count
+                })
+                self.logger.info(f"ℹ️  设备 {device.get('ip')} 开放 {port_count} 个端口")
+        
         return threats
     
     def detect_known_device_anomalies(self, devices: Dict) -> List[Dict]:

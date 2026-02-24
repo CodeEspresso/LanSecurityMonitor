@@ -177,6 +177,19 @@ class SklearnBehaviorModel(MLModelBase):
             
             self.save_model('behavior_anomaly.pkl')
             
+            if self.database:
+                from datetime import datetime
+                try:
+                    self.database.save_ml_model_metadata(
+                        model_type='behavior_anomaly',
+                        trained_at=datetime.now().isoformat(),
+                        training_samples=len(training_data),
+                        accuracy=None,
+                        config={'model_type': 'sklearn_if', 'n_features': len(self.FEATURE_NAMES)}
+                    )
+                except Exception as e:
+                    self.logger.warning(f"保存模型元数据失败: {e}")
+            
             return True
             
         except Exception as e:

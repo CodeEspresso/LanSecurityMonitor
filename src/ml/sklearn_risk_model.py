@@ -162,6 +162,21 @@ class SklearnRiskModel(MLModelBase):
             
             self.save_model('risk_classifier.pkl')
             
+            if self.database:
+                import json
+                from datetime import datetime
+                try:
+                    accuracy = self.model.score(X_scaled, y) if hasattr(self.model, 'score') else None
+                    self.database.save_ml_model_metadata(
+                        model_type='risk_classifier',
+                        trained_at=datetime.now().isoformat(),
+                        training_samples=len(training_data),
+                        accuracy=accuracy,
+                        config={'model_type': 'sklearn_rf', 'n_features': len(self.FEATURE_NAMES)}
+                    )
+                except Exception as e:
+                    self.logger.warning(f"保存模型元数据失败: {e}")
+            
             return True
             
         except Exception as e:

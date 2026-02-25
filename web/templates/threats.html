@@ -68,7 +68,7 @@
         <!-- 统计卡片 -->
         <div class="row mb-4">
             <div class="col-md-3">
-                <div class="card bg-danger text-white">
+                <div class="card bg-danger text-white clickable-card" onclick="filterBySeverity('critical')">
                     <div class="card-body">
                         <h6>严重威胁</h6>
                         <h2 id="critical-count">0</h2>
@@ -76,7 +76,7 @@
                 </div>
             </div>
             <div class="col-md-3">
-                <div class="card bg-warning text-white">
+                <div class="card bg-warning text-white clickable-card" onclick="filterBySeverity('high')">
                     <div class="card-body">
                         <h6>高危威胁</h6>
                         <h2 id="high-count">0</h2>
@@ -84,7 +84,7 @@
                 </div>
             </div>
             <div class="col-md-3">
-                <div class="card bg-info text-white">
+                <div class="card bg-info text-white clickable-card" onclick="filterBySeverity('medium')">
                     <div class="card-body">
                         <h6>中等威胁</h6>
                         <h2 id="medium-count">0</h2>
@@ -92,7 +92,7 @@
                 </div>
             </div>
             <div class="col-md-3">
-                <div class="card bg-success text-white">
+                <div class="card bg-success text-white clickable-card" onclick="filterBySeverity('low')">
                     <div class="card-body">
                         <h6>低危威胁</h6>
                         <h2 id="low-count">0</h2>
@@ -231,6 +231,20 @@
         document.addEventListener('DOMContentLoaded', function() {
             loadUserInfo();
             loadThreatStats();
+            
+            // 从URL参数初始化筛选条件
+            const urlParams = new URLSearchParams(window.location.search);
+            const severityParam = urlParams.get('severity');
+            const typeParam = urlParams.get('type');
+            
+            if (severityParam) {
+                document.getElementById('severity-filter').value = severityParam;
+            }
+            if (typeParam) {
+                document.getElementById('type-filter').value = typeParam;
+            }
+            
+            // 初始化完成后加载威胁列表
             loadThreats();
             
             // 添加筛选事件监听
@@ -484,6 +498,7 @@
                 'suspicious_port': '可疑端口',
                 'bandwidth_anomaly': '带宽异常',
                 'nas_external_access': 'NAS外网访问',
+                'nas_dangerous_port': 'NAS高危端口',
                 'self_external_access': '本机外网访问'
             };
             return typeMap[type] || type;

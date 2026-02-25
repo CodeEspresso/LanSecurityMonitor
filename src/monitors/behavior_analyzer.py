@@ -22,9 +22,11 @@ class BehaviorAnalyzer:
         
         # 配置项
         self.enable_behavior_analysis = config.get_bool('ENABLE_BEHAVIOR_ANALYSIS', True)
-        self.min_observations = config.get_int('MIN_OBSERVATIONS', 7)  # 最小观察次数
-        self.anomaly_threshold = config.get_int('ANOMALY_THRESHOLD', 3)  # 异常阈值
-        self.learning_period_days = config.get_int('LEARNING_PERIOD_DAYS', 30)  # 学习周期
+        self.min_observations = config.get_int('MIN_OBSERVATIONS', 7)
+        self.anomaly_threshold = config.get_int('ANOMALY_THRESHOLD', 3)
+        self.learning_period_days = config.get_int('LEARNING_PERIOD_DAYS', 30)
+        self.active_hour_threshold = config.get_float('ACTIVE_HOUR_THRESHOLD', 0.6)
+        self.active_hour_tolerance = config.get_int('ACTIVE_HOUR_TOLERANCE', 1)
     
     def initialize(self):
         """初始化行为分析器"""
@@ -33,6 +35,8 @@ class BehaviorAnalyzer:
             self.logger.info(f"最小观察次数: {self.min_observations}")
             self.logger.info(f"异常阈值: {self.anomaly_threshold}")
             self.logger.info(f"学习周期: {self.learning_period_days}天")
+            self.logger.info(f"活跃时间阈值: {self.active_hour_threshold}")
+            self.logger.info(f"活跃时间容差: ±{self.active_hour_tolerance}小时")
     
     def analyze_device_behavior(self, devices: Dict) -> List[Dict]:
         """分析设备行为
@@ -183,7 +187,7 @@ class BehaviorAnalyzer:
         hourly_activity = {hour: count / max_count for hour, count in hourly_counts.items()}
         
         # 识别活跃时间段
-        active_hours = [hour for hour, activity in hourly_activity.items() if activity > 0.3]
+        active_hours = [hour for hour, activity in hourly_activity.items() if activity > self.active_hour_threshold]
         
         return {
             'counts': hourly_counts,
@@ -253,6 +257,9 @@ class BehaviorAnalyzer:
             return False, ""
         
         if current_hour not in active_hours:
+            if self._is_within_tolerance(current_hour, active_hours, self.active_hour_tolerance):
+                self.logger.debug(f"设备 {device.get('mac')} 当前时间 {current_hour} 在活跃时间容差范围内")
+                return False, ""
             return True, f"设备在非活跃时间上线 (当前: {current_hour}:00, 活跃时间: {active_hours})"
         
         if current_day not in active_days:
@@ -314,6 +321,14 @@ class BehaviorAnalyzer:
         """
         day_names = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
         return day_names[day] if 0 <= day < 7 else '未知'
+    
+    def _is_within_tolerance(self, current_hour: int, active_hours: list, tolerance: int) -> bool:
+        if tolerance <= 0 or not active_hours:
+            return False
+        for hour in active_hours:
+            if abs(current_hour - hour) <= tolerance:
+                return True
+        return False
     
     def _is_always_online_device(self, active_hours: list, active_days: list) -> bool:
         """判断是否为一直在线设备

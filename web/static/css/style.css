@@ -27,6 +27,16 @@ body {
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
 }
 
+/* 可点击卡片样式 */
+.clickable-card {
+    cursor: pointer;
+}
+
+.clickable-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+}
+
 .card-header {
     background-color: #fff;
     border-bottom: 1px solid #e9ecef;

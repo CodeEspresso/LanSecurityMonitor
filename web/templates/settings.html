@@ -341,19 +341,31 @@
                             </div>
                         </div>
                         <hr>
-                        <div class="d-flex align-items-center justify-content-between">
-                            <div>
-                                <span class="text-muted small">模型状态：</span>
-                                <span id="ml-model-status" class="badge bg-secondary">加载中...</span>
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <div>
+                                        <span class="text-muted small">风险评估模型：</span>
+                                        <span id="ml-risk-status" class="badge bg-secondary">加载中...</span>
+                                    </div>
+                                </div>
                             </div>
-                            <div>
-                                <button class="btn btn-outline-primary btn-sm me-2" onclick="loadMLSettings()">
-                                    <i class="bi bi-arrow-clockwise"></i> 刷新
-                                </button>
-                                <button class="btn btn-primary btn-sm" onclick="saveMLSettings()">
-                                    <i class="bi bi-check-lg"></i> 保存设置
-                                </button>
+                            <div class="col-md-6">
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <div>
+                                        <span class="text-muted small">行为异常模型：</span>
+                                        <span id="ml-behavior-status" class="badge bg-secondary">加载中...</span>
+                                    </div>
+                                </div>
                             </div>
+                        </div>
+                        <div>
+                            <button class="btn btn-outline-primary btn-sm me-2" onclick="loadMLSettings()">
+                                <i class="bi bi-arrow-clockwise"></i> 刷新
+                            </button>
+                            <button class="btn btn-primary btn-sm" onclick="saveMLSettings()">
+                                <i class="bi bi-check-lg"></i> 保存设置
+                            </button>
                         </div>
                         <div id="ml-restart-warning" class="alert alert-warning mt-3 mb-0" style="display: none;">
                             <i class="bi bi-exclamation-triangle me-1"></i>
@@ -577,30 +589,43 @@
                     document.getElementById('ml_risk_model').value = settings.ml_risk_model || 'sklearn_rf';
                     document.getElementById('ml_behavior_model').value = settings.ml_behavior_model || 'sklearn_if';
                     
-                    let statusText = '已就绪';
-                    let statusClass = 'bg-success';
-                    if (!settings.ml_library_available) {
-                        statusText = '未安装 scikit-learn';
-                        statusClass = 'bg-danger';
-                    } else if (!settings.risk_model_trained && !settings.behavior_model_trained) {
-                        statusText = '等待训练数据';
-                        statusClass = 'bg-warning';
-                    } else if (settings.risk_model_trained && settings.behavior_model_trained) {
-                        statusText = '模型已训练';
-                        statusClass = 'bg-success';
-                    } else {
-                        statusText = '部分已训练';
-                        statusClass = 'bg-info';
+                    function getStatusBadge(trained, libAvailable) {
+                        if (!libAvailable) {
+                            return { text: '未安装ML库', class: 'bg-danger' };
+                        } else if (trained) {
+                            return { text: '已训练', class: 'bg-success' };
+                        } else {
+                            return { text: '等待数据', class: 'bg-warning' };
+                        }
                     }
                     
-                    const statusEl = document.getElementById('ml-model-status');
-                    statusEl.textContent = statusText;
-                    statusEl.className = `badge ${statusClass}`;
+                    const riskStatus = getStatusBadge(settings.risk_model_trained, settings.ml_library_available);
+                    const behaviorStatus = getStatusBadge(settings.behavior_model_trained, settings.ml_library_available);
+                    
+                    const riskEl = document.getElementById('ml-risk-status');
+                    riskEl.textContent = riskStatus.text;
+                    riskEl.className = `badge ${riskStatus.class}`;
+                    
+                    const behaviorEl = document.getElementById('ml-behavior-status');
+                    const behaviorSamples = settings.behavior_samples || 0;
+                    const deviceCount = settings.device_count || 0;
+                    let threshold;
+                    if (deviceCount < 10) {
+                        threshold = Math.max(5, Math.floor(deviceCount * 0.5));
+                    } else if (deviceCount <= 50) {
+                        threshold = Math.max(10, Math.min(Math.floor(deviceCount * 0.5), 30));
+                    } else {
+                        threshold = Math.max(15, Math.min(Math.floor(deviceCount * 0.5), 50));
+                    }
+                    behaviorEl.textContent = `${behaviorStatus.text} (${behaviorSamples}/${threshold})`;
+                    behaviorEl.className = `badge ${behaviorStatus.class}`;
                 }
             } catch (error) {
                 console.error('加载ML设置失败:', error);
-                document.getElementById('ml-model-status').textContent = '加载失败';
-                document.getElementById('ml-model-status').className = 'badge bg-danger';
+                document.getElementById('ml-risk-status').textContent = '加载失败';
+                document.getElementById('ml-risk-status').className = 'badge bg-danger';
+                document.getElementById('ml-behavior-status').textContent = '加载失败';
+                document.getElementById('ml-behavior-status').className = 'badge bg-danger';
             }
         }
 

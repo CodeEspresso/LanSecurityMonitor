@@ -352,7 +352,7 @@ class WebApp:
             """获取威胁通知设置"""
             try:
                 settings = {}
-                threat_types = ['unknown_device', 'behavior_anomaly', 'suspicious_port', 'bandwidth_anomaly', 'nas_external_access']
+                threat_types = ['unknown_device', 'behavior_anomaly', 'suspicious_port', 'bandwidth_anomaly', 'nas_external_access', 'self_external_access']
                 
                 for threat_type in threat_types:
                     enabled = self.database.get_system_status(
@@ -678,6 +678,21 @@ class WebApp:
                     device['notes'] = notes
                 
                 self.database.save_device(device)
+                
+                if device_type == 'nas':
+                    mac_upper = mac.upper()
+                    if not Config.validate_mac(mac_upper):
+                        logger.warning(f"MAC地址格式无效: {mac}")
+                    else:
+                        nas_devices = self.config.get_list('NAS_DEVICES', [])
+                        if mac_upper not in nas_devices:
+                            nas_devices.append(mac_upper)
+                            success = self.config.set('NAS_DEVICES', ','.join(nas_devices))
+                            if success:
+                                logger.info(f"NAS设备 {mac} 已添加到监控列表")
+                            else:
+                                logger.warning(f"添加NAS设备失败: {mac}")
+                
                 logger.info(f"设备 {mac} 已标记为 {device_type}")
                 
                 return jsonify({

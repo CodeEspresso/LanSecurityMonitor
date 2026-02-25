@@ -20,6 +20,7 @@ from ..notifiers.bark_notifier import BarkNotifier
 from ..utils.database import Database
 from ..utils.metrics_exporter import MetricsExporter
 from ..utils.ikuai_api import IKuaiAPI
+from ..utils.device_utils import DeviceUtils
 
 
 class SecurityMonitor:
@@ -158,6 +159,15 @@ class SecurityMonitor:
             if nas_anomalies:
                 self.logger.warning(f"发现 {len(nas_anomalies)} 个NAS异常")
                 for anomaly in nas_anomalies:
+                    self._handle_threats([anomaly])
+            
+            # 6.5 本机外网连接监控
+            self.logger.info("步骤6.5: 本机外网连接监控...")
+            self_anomalies = self.nas_monitor.monitor_self()
+            
+            if self_anomalies:
+                self.logger.warning(f"发现 {len(self_anomalies)} 个本机异常连接")
+                for anomaly in self_anomalies:
                     self._handle_threats([anomaly])
             
             # 7. 设备行为分析
@@ -364,9 +374,32 @@ class SecurityMonitor:
             if hasattr(self, '_first_run_mode') and self._first_run_mode:
                 self.logger.info(f"首次运行模式：设备 {mac} 已记录，将进行安全检查")
                 self.logger.info(f"⚠️  如果该设备存在威胁，将会收到威胁通知")
-                # 首次运行模式下，不发送新设备通知
             else:
-                # 非首次运行模式，发送Bark通知（受配置控制）
+                # 非首次运行模式，分析设备类型
+                analyzed_device = DeviceUtils.analyze_device(device.copy(), self.database)
+                detected_type = analyzed_device.get('device_type', 'unknown')
+                
+                # 检测到NAS设备，提醒用户确认
+                if detected_type == 'nas':
+                    nas_devices = self.config.get_list('NAS_DEVICES', [])
+                    mac_upper = mac.upper()
+                    if mac_upper not in nas_devices:
+                        self.logger.info(f"检测到新NAS设备: {hostname}({ip})")
+                        message_nas = (
+                            f"🔔 检测到新NAS设备\n"
+                            f"IP: {ip}\n"
+                            f"MAC: {mac}\n"
+                            f"主机名: {hostname}\n\n"
+                            f"请在Web界面标记该设备为NAS以启用外网访问监控"
+                        )
+                        self.bark_notifier.send_alert(
+                            title="🔔 新NAS设备 detected",
+                            message=message_nas,
+                            severity='warning',
+                            device=device
+                        )
+                
+                # 发送普通新设备通知
                 self.bark_notifier.send_alert(
                     title="🚨 新设备接入",
                     message=message,

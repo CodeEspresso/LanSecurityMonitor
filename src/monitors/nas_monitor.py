@@ -32,6 +32,36 @@ class NASMonitor:
         # 本机监控配置
         self.enable_self_monitor = config.get_bool('ENABLE_SELF_MONITOR', True)
         self.self_ip = config.get('SELF_IP', '')
+        
+        # NAS外网访问监控端口列表（常见NAS远程访问端口）
+        self.nas_remote_ports = [
+            5000,   # 群晖 DSM web
+            5001,   # 群晖 DSM web (SSL)
+            8080,   # QNAP / 通用
+            8081,   # QNAP (SSL)
+            443,    # 通用 HTTPS
+            8443,   # 通用 HTTPS
+            9000,   # Portainer
+            9090,   # Prometheus
+            3000,   # Docker UI
+        ]
+        
+        # 高危端口列表（无论内外网都应告警）
+        self.dangerous_ports = [
+            22,     # SSH
+            23,     # Telnet
+            3389,   # RDP
+            445,    # SMB
+            139,    # NetBIOS
+            21,     # FTP
+            69,     # TFTP
+            1433,   # MSSQL
+            3306,   # MySQL
+            5432,   # PostgreSQL
+            27017,  # MongoDB
+            6379,   # Redis
+            11211,  # Memcached
+        ]
     
     def initialize(self):
         """初始化NAS监控器"""
@@ -101,23 +131,31 @@ class NASMonitor:
             return anomalies
         
         for nas_device in nas_devices:
-            self.logger.info(f"监控NAS设备: {nas_device.get('hostname', nas_device.get('ip'))}")
+            nas_ip = nas_device.get('ip')
+            nas_hostname = nas_device.get('hostname', nas_ip)
+            self.logger.info(f"监控NAS设备: {nas_hostname}")
             
-            # 检查外网连接
-            external_connections = self._check_external_connections(nas_device.get('ip'))
+            # 检查NAS是否暴露了高危端口
+            dangerous_exposed = self._check_exposed_ports(nas_ip, self.dangerous_ports)
             
-            for conn in external_connections:
-                if not self._is_trusted_connection(conn):
-                    anomalies.append({
-                        'device': nas_device,
-                        'type': 'untrusted_external_connection',
-                        'severity': 'high',
-                        'description': f"发现非信任外部连接: {conn.get('remote_ip')}:{conn.get('remote_port')}",
-                        'connection': conn
-                    })
+            if dangerous_exposed:
+                self.logger.warning(f"NAS {nas_hostname} 发现暴露的高危端口: {dangerous_exposed}")
+                anomalies.append({
+                    'device': nas_device,
+                    'type': 'nas_dangerous_port',
+                    'severity': 'high',
+                    'description': f"NAS暴露高危端口: {', '.join(map(str, dangerous_exposed))}（建议关闭或限制访问）",
+                    'ports': dangerous_exposed
+                })
+            
+            # 检查NAS是否暴露了远程访问端口（信息告警，非风险）
+            remote_exposed = self._check_exposed_ports(nas_ip, self.nas_remote_ports)
+            
+            if remote_exposed:
+                self.logger.info(f"NAS {nas_hostname} 开放远程访问端口: {remote_exposed}")
             
             # 检查带宽使用
-            bandwidth_usage = self._check_bandwidth_usage(nas_device.get('ip'))
+            bandwidth_usage = self._check_bandwidth_usage(nas_ip)
             if bandwidth_usage and bandwidth_usage > self.bandwidth_threshold:
                 anomalies.append({
                     'device': nas_device,
@@ -128,6 +166,48 @@ class NASMonitor:
                 })
         
         return anomalies
+    
+    def _check_exposed_ports(self, ip: str, port_list: List[int] = None) -> List[int]:
+        """检查NAS是否暴露了指定端口
+        
+        Args:
+            ip: NAS IP地址
+            port_list: 要检查的端口列表（默认使用 nas_remote_ports）
+            
+        Returns:
+            暴露的端口列表
+        """
+        if port_list is None:
+            port_list = self.nas_remote_ports
+        
+        exposed_ports = []
+        
+        for port in port_list:
+            if self._check_port_open(ip, port):
+                exposed_ports.append(port)
+        
+        return exposed_ports
+    
+    def _check_port_open(self, ip: str, port: int, timeout: float = 1.0) -> bool:
+        """检查端口是否开放
+        
+        Args:
+            ip: 目标IP
+            port: 端口号
+            timeout: 超时时间
+            
+        Returns:
+            端口是否开放
+        """
+        try:
+            import socket
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(timeout)
+            result = sock.connect_ex((ip, port))
+            sock.close()
+            return result == 0
+        except Exception:
+            return False
     
     def monitor_self(self) -> List[Dict]:
         """监控本机外网连接

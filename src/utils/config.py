@@ -94,7 +94,7 @@ class Config:
         
         return [item.strip() for item in value.split(',') if item.strip()]
     
-    ALLOWLIST_KEYS = ['NAS_DEVICES', 'TRUSTED_EXTERNAL_IPS']
+    ALLOWLIST_KEYS = ['NAS_DEVICES', 'TRUSTED_EXTERNAL_IPS', 'TRUSTED_NAS_PORTS']
     DENYLIST_KEYS = [
         'WEB_PASSWORD', 'WEB_SECRET_KEY', 'BARK_API_KEY', 'BARK_DEVICE_TOKEN',
         'IKUAI_USERNAME', 'IKUAI_PASSWORD', 'ML_MODEL_PATH', 'DATABASE_PATH',

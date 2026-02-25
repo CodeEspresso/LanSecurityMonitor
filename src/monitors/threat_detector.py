@@ -75,6 +75,8 @@ class ThreatDetector:
         Returns:
             List[Dict]: 威胁列表
         """
+        self._check_and_retrain_models()
+        
         threats = []
         
         for mac, device in devices.items():
@@ -304,3 +306,23 @@ class ThreatDetector:
             self.logger.info(f"  行为模型: {'已训练' if bm.get('is_trained') else '未训练'} ({bm.get('model_type', 'N/A')})")
         
         self.logger.info("=" * 50)
+    
+    def _check_and_retrain_models(self):
+        """检查并重新训练ML模型"""
+        if not self.enable_ml_behavior or not self.ml_behavior_detector:
+            return
+        
+        try:
+            training_data = self.ml_behavior_detector._prepare_training_data()
+            sample_count = len(training_data) if training_data else 0
+            
+            dynamic_threshold = self.ml_behavior_detector._get_dynamic_threshold()
+            
+            if sample_count >= dynamic_threshold:
+                info = self.ml_behavior_detector.get_model_info()
+                if not info.get('is_trained', False):
+                    self.logger.info(f"检测到 {sample_count} 个有效训练样本 (阈值: {dynamic_threshold})，开始训练ML模型...")
+                    self.ml_behavior_detector.retrain_model()
+                    self.log_ml_status()
+        except Exception as e:
+            self.logger.error(f"检查/重新训练ML模型失败: {e}")

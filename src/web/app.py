@@ -406,12 +406,23 @@ class WebApp:
                 
                 risk_model_trained = False
                 behavior_model_trained = False
+                behavior_samples = 0
                 
                 if ml_available:
                     risk_meta = self.database.get_ml_model_metadata('risk_classifier')
-                    behavior_meta = self.database.get_ml_model_metadata('behavior_anomaly')
-                    risk_model_trained = risk_meta is not None
-                    behavior_model_trained = behavior_meta is not None
+                    risk_model_trained = risk_meta is not None and risk_meta.get('training_samples', 0) >= 10
+                    
+                    total_devices = self.database.get_total_devices_count()
+                    behavior_samples = self.database.get_devices_with_sufficient_behavior_data(min_observations=2)
+                    
+                    if total_devices < 10:
+                        behavior_threshold = max(5, int(total_devices * 0.5))
+                    elif total_devices <= 50:
+                        behavior_threshold = max(10, min(int(total_devices * 0.5), 30))
+                    else:
+                        behavior_threshold = max(15, min(int(total_devices * 0.5), 50))
+                    
+                    behavior_model_trained = behavior_samples >= behavior_threshold
                 
                 return jsonify({
                     'success': True,
@@ -422,7 +433,9 @@ class WebApp:
                         'ml_behavior_model': self.config.get('ML_BEHAVIOR_MODEL', 'sklearn_if'),
                         'ml_library_available': ml_available,
                         'risk_model_trained': risk_model_trained,
-                        'behavior_model_trained': behavior_model_trained
+                        'behavior_model_trained': behavior_model_trained,
+                        'behavior_samples': behavior_samples,
+                        'device_count': total_devices
                     }
                 })
             except Exception as e:

@@ -63,7 +63,8 @@ class SecurityMonitor:
             self.logger.info("   ✅ 严重威胁通知: 保持开启（high/critical级别）")
             self.logger.info("   ⏸️  中等威胁通知: 暂时关闭（避免误报）")
             self.logger.info("   ⏸️  新设备通知: 暂时关闭")
-            self.logger.info("   ⏸️  行为分析: 暂时关闭")
+            self.logger.info("   ⏸️  行为分析通知: 暂时关闭")
+            self.logger.info("   ⏸️  带宽监控通知: 暂时关闭")
             self.logger.info("   ⏸️  首次出现告警: 暂时关闭")
             self.logger.info("")
             self.logger.info("📚 学习期要求：")
@@ -378,6 +379,16 @@ class SecurityMonitor:
     
     def _handle_threats(self, threats: List[Dict]):
         """处理威胁"""
+        # 检查是否应该跳过通知（学习期或有足够数据前）
+        should_suppress_notifications = False
+        if hasattr(self, '_first_run_mode') and self._first_run_mode:
+            should_suppress_notifications = True
+        else:
+            # 检查是否有足够的学习数据
+            total_behaviors = self.database.get_total_behavior_count()
+            if total_behaviors < 100:
+                should_suppress_notifications = True
+        
         for threat in threats:
             device = threat.get('device', {})
             threat_type = threat.get('type', 'unknown')
@@ -392,18 +403,21 @@ class SecurityMonitor:
             if not notify_enabled:
                 self.logger.info(f"通知已禁用，跳过威胁通知: {threat_type}")
             
-            elif hasattr(self, '_first_run_mode') and self._first_run_mode:
-                if severity in ['high', 'critical']:
-                    self.logger.warning(f"学习期检测到严重威胁: {threat_type} ({severity})")
-                    self.bark_notifier.send_alert(
-                        title=f"⚠️ 严重安全威胁 - {threat_type}",
-                        message=message,
-                        severity=severity,
-                        device=device,
-                        is_threat=True
-                    )
-                else:
-                    self.logger.info(f"学习期：跳过中等威胁通知 ({threat_type}, {severity})")
+            elif should_suppress_notifications and threat_type in ['behavior_anomaly', 'bandwidth_anomaly', 'new_device']:
+                # 学习期或数据不足时，跳过行为/带宽/新设备通知
+                self.logger.info(f"学习期/数据不足：跳过 {threat_type} 通知")
+            
+            elif should_suppress_notifications and severity in ['high', 'critical']:
+                self.logger.warning(f"学习期检测到严重威胁: {threat_type} ({severity})")
+                self.bark_notifier.send_alert(
+                    title=f"⚠️ 严重安全威胁 - {threat_type}",
+                    message=message,
+                    severity=severity,
+                    device=device,
+                    is_threat=True
+                )
+            elif should_suppress_notifications:
+                self.logger.info(f"学习期：跳过中等威胁通知 ({threat_type}, {severity})")
             else:
                 self.bark_notifier.send_alert(
                     title=f"⚠️ 安全威胁 - {threat_type}",

@@ -252,6 +252,10 @@ class BehaviorAnalyzer:
             self.logger.debug(f"设备 {device.get('mac')} 识别为移动设备，跳过时间异常检测")
             return False, ""
         
+        if self._should_skip_time_check(device):
+            self.logger.debug(f"设备 {device.get('mac')} 识别为{device.get('device_type')}类型，跳过时间异常检测")
+            return False, ""
+        
         if len(active_hours) < 3:
             self.logger.debug(f"设备 {device.get('mac')} 活跃时间数据不足，跳过异常检测")
             return False, ""
@@ -287,6 +291,74 @@ class BehaviorAnalyzer:
         
         mac = device.get('mac', '')
         if self._is_random_mac(mac):
+            return True
+        
+        return False
+    
+    def _is_iot_device(self, device: Dict) -> bool:
+        """判断是否为IoT/智能家居设备
+        
+        基于多特征综合判断：
+        1. 设备类型为 smart_home
+        2. 随机MAC地址（很多IoT设备使用随机MAC）
+        3. 流量特征（持续低流量）
+        4. 持续在线时间长
+        5. 厂商特征（小米、涂鸦等常见IoT厂商）
+        
+        Args:
+            device: 设备信息
+            
+        Returns:
+            是否为IoT设备
+        """
+        device_type = device.get('device_type', '')
+        vendor = device.get('vendor', '').lower()
+        mac = device.get('mac', '')
+        
+        if device_type == 'smart_home':
+            return True
+        
+        if device_type == 'unknown':
+            iot_vendors = ['小米', '涂鸦', '乐鑫', 'esp', 'tuya', 'aqara', '萤石', '海康', 'gree', '美的', '格力', '天猫', '百度', '小米科技']
+            for iot_vendor in iot_vendors:
+                if iot_vendor.lower() in vendor:
+                    return True
+            
+            if self._is_random_mac(mac):
+                bandwidth = device.get('bandwidth', 0)
+                if bandwidth < 100:
+                    return True
+        
+        return False
+    
+    def _should_skip_time_check(self, device: Dict) -> bool:
+        """判断是否应该跳过时间异常检测
+        
+        以下设备类型不应该用时间维度判断异常：
+        - smart_home: 智能家居随时可能联动
+        - tv: 智能电视随时可能开关
+        - camera: 监控摄像头24小时运行
+        - printer: 打印机随时可能被唤醒
+        - 随机MAC的低流量设备
+        
+        Args:
+            device: 设备信息
+            
+        Returns:
+            是否应该跳过时间检测
+        """
+        device_type = device.get('device_type', '')
+        category = device.get('category', '')
+        
+        skip_types = ['smart_home', 'tv', 'camera', 'printer']
+        
+        if device_type in skip_types:
+            return True
+        
+        if category == 'iot':
+            return True
+        
+        if self._is_iot_device(device):
             return True
         
         return False

@@ -250,16 +250,21 @@ class WebApp:
                 page = int(request.args.get('page', 1))
                 per_page = int(request.args.get('per_page', 20))
                 severity = request.args.get('severity', None)
+                threat_type = request.args.get('type', None)
                 
                 # 获取威胁记录
                 threats = self.database.get_threats(
                     limit=per_page,
                     offset=(page - 1) * per_page,
-                    severity=severity
+                    severity=severity,
+                    threat_type=threat_type
                 )
                 
                 # 获取总数
-                total = self.database.get_threats_count(severity=severity)
+                total = self.database.get_threats_count(
+                    severity=severity,
+                    threat_type=threat_type
+                )
                 
                 return jsonify({
                     'success': True,

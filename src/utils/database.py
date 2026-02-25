@@ -711,13 +711,14 @@ class Database:
             'progress': min(device_count / 10 * 100, 100)
         }
     
-    def get_threats(self, limit: int = 20, offset: int = 0, severity: str = None) -> List[Dict]:
+    def get_threats(self, limit: int = 20, offset: int = 0, severity: str = None, threat_type: str = None) -> List[Dict]:
         """获取威胁记录
         
         Args:
             limit: 返回数量限制
             offset: 偏移量
             severity: 严重程度过滤
+            threat_type: 威胁类型过滤
             
         Returns:
             威胁记录列表
@@ -725,19 +726,25 @@ class Database:
         try:
             cursor = self.conn.cursor()
             
+            where_clauses = []
+            params = []
+            
             if severity:
-                cursor.execute('''
-                    SELECT * FROM threats 
-                    WHERE severity = ?
-                    ORDER BY timestamp DESC 
-                    LIMIT ? OFFSET ?
-                ''', (severity, limit, offset))
-            else:
-                cursor.execute('''
-                    SELECT * FROM threats 
-                    ORDER BY timestamp DESC 
-                    LIMIT ? OFFSET ?
-                ''', (limit, offset))
+                where_clauses.append('severity = ?')
+                params.append(severity)
+            
+            if threat_type:
+                where_clauses.append('type = ?')
+                params.append(threat_type)
+            
+            where_sql = ' AND '.join(where_clauses) if where_clauses else '1=1'
+            
+            cursor.execute(f'''
+                SELECT * FROM threats 
+                WHERE {where_sql}
+                ORDER BY timestamp DESC 
+                LIMIT ? OFFSET ?
+            ''', (*params, limit, offset))
             
             results = cursor.fetchall()
             
@@ -759,11 +766,12 @@ class Database:
             self.logger.error(f"获取威胁记录失败: {str(e)}")
             return []
     
-    def get_threats_count(self, severity: str = None) -> int:
+    def get_threats_count(self, severity: str = None, threat_type: str = None) -> int:
         """获取威胁总数
         
         Args:
             severity: 严重程度过滤
+            threat_type: 威胁类型过滤
             
         Returns:
             威胁总数
@@ -771,10 +779,20 @@ class Database:
         try:
             cursor = self.conn.cursor()
             
+            where_clauses = []
+            params = []
+            
             if severity:
-                cursor.execute('SELECT COUNT(*) FROM threats WHERE severity = ?', (severity,))
-            else:
-                cursor.execute('SELECT COUNT(*) FROM threats')
+                where_clauses.append('severity = ?')
+                params.append(severity)
+            
+            if threat_type:
+                where_clauses.append('type = ?')
+                params.append(threat_type)
+            
+            where_sql = ' AND '.join(where_clauses) if where_clauses else '1=1'
+            
+            cursor.execute(f'SELECT COUNT(*) FROM threats WHERE {where_sql}', tuple(params))
             
             result = cursor.fetchone()
             return result[0] if result else 0

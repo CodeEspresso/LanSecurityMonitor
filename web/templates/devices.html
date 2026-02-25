@@ -220,7 +220,24 @@
         // 页面加载完成后执行
         document.addEventListener('DOMContentLoaded', function() {
             loadUserInfo();
-            loadDevices();
+            loadDevices().then(() => {
+                // 从URL参数初始化筛选条件
+                const urlParams = new URLSearchParams(window.location.search);
+                const statusParam = urlParams.get('status');
+                const typeParam = urlParams.get('type');
+                
+                if (statusParam) {
+                    document.getElementById('status-filter').value = statusParam;
+                }
+                if (typeParam) {
+                    document.getElementById('type-filter').value = typeParam;
+                }
+                
+                // 如果有URL参数，立即应用筛选
+                if (statusParam || typeParam) {
+                    filterDevices();
+                }
+            });
             
             // 添加搜索和筛选事件监听
             document.getElementById('search-input').addEventListener('input', filterDevices);

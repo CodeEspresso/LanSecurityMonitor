@@ -163,6 +163,25 @@ function formatSeverity(severity) {
     return severityMap[severity] || severity;
 }
 
+// 导航到指定页面
+function navigateTo(url) {
+    window.location.href = url;
+}
+
+// 按严重程度筛选
+function filterBySeverity(severity) {
+    const url = new URL(window.location);
+    url.searchParams.set('severity', severity);
+    url.searchParams.set('page', '1');
+    window.location.href = url;
+}
+
+// 获取URL参数
+function getUrlParam(param) {
+    const urlParams = new URLSearchParams(window.location.search);
+    return urlParams.get(param);
+}
+
 // 登出
 async function logout() {
     try {

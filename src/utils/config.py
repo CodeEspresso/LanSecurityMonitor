@@ -6,6 +6,7 @@
 
 import os
 import logging
+import re
 from typing import Optional, Any
 
 
@@ -93,16 +94,49 @@ class Config:
         
         return [item.strip() for item in value.split(',') if item.strip()]
     
-    def set(self, key: str, value: Any) -> bool:
+    ALLOWLIST_KEYS = ['NAS_DEVICES', 'TRUSTED_EXTERNAL_IPS']
+    DENYLIST_KEYS = [
+        'WEB_PASSWORD', 'WEB_SECRET_KEY', 'BARK_API_KEY', 'BARK_DEVICE_TOKEN',
+        'IKUAI_USERNAME', 'IKUAI_PASSWORD', 'ML_MODEL_PATH', 'DATABASE_PATH',
+        'SECRET', 'TOKEN', 'KEY', 'PASSWORD'
+    ]
+    
+    @staticmethod
+    def validate_mac(mac: str) -> bool:
+        """验证MAC地址格式"""
+        pattern = re.compile(r'^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$')
+        return bool(pattern.match(mac))
+    
+    @staticmethod
+    def validate_ip(ip: str) -> bool:
+        """验证IP地址格式"""
+        pattern = re.compile(r'^(\d{1,3}\.){3}\d{1,3}$')
+        if not pattern.match(ip):
+            return False
+        parts = ip.split('.')
+        return all(0 <= int(part) <= 255 for part in parts)
+    
+    def set(self, key: str, value: Any, allowlist: list = None) -> bool:
         """设置配置值并保存到文件
         
         Args:
             key: 配置键
             value: 配置值
+            allowlist: 自定义允许的键列表（可选）
             
         Returns:
             是否保存成功
         """
+        allowed_keys = allowlist or self.ALLOWLIST_KEYS
+        
+        if key not in allowed_keys:
+            self.logger.warning(f"拒绝写入未授权的配置键: {key}")
+            return False
+        
+        if any(deny_key in key.upper() for deny_key in self.DENYLIST_KEYS):
+            self.logger.warning(f"拒绝写入敏感配置键: {key}")
+            return False
+        
         try:
             str_value = str(value)
             self._config[key] = str_value

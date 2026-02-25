@@ -60,7 +60,7 @@
         <!-- 系统状态卡片 -->
         <div class="row mb-4">
             <div class="col-md-3">
-                <div class="card bg-primary text-white">
+                <div class="card bg-primary text-white clickable-card" onclick="navigateTo('/devices')">
                     <div class="card-body">
                         <div class="d-flex justify-content-between">
                             <div>
@@ -75,7 +75,7 @@
                 </div>
             </div>
             <div class="col-md-3">
-                <div class="card bg-success text-white">
+                <div class="card bg-success text-white clickable-card" onclick="navigateTo('/devices?status=online')">
                     <div class="card-body">
                         <div class="d-flex justify-content-between">
                             <div>
@@ -90,7 +90,7 @@
                 </div>
             </div>
             <div class="col-md-3">
-                <div class="card bg-warning text-white">
+                <div class="card bg-warning text-white clickable-card" onclick="navigateTo('/threats')">
                     <div class="card-body">
                         <div class="d-flex justify-content-between">
                             <div>

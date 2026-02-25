@@ -33,6 +33,9 @@ class NASMonitor:
         self.enable_self_monitor = config.get_bool('ENABLE_SELF_MONITOR', True)
         self.self_ip = config.get('SELF_IP', '')
         
+        # 用户已确认的NAS端口（格式: "IP:端口"）
+        self.trusted_nas_ports = config.get_list('TRUSTED_NAS_PORTS', [])
+        
         # NAS外网访问监控端口列表（常见NAS远程访问端口）
         self.nas_remote_ports = [
             5000,   # 群晖 DSM web
@@ -62,6 +65,10 @@ class NASMonitor:
             6379,   # Redis
             11211,  # Memcached
         ]
+        
+        # 缓存公网IP（避免频繁请求）
+        self._cached_external_ip = None
+        self._ip_cache_time = 0
     
     def initialize(self):
         """初始化NAS监控器"""
@@ -139,14 +146,37 @@ class NASMonitor:
             dangerous_exposed = self._check_exposed_ports(nas_ip, self.dangerous_ports)
             
             if dangerous_exposed:
-                self.logger.warning(f"NAS {nas_hostname} 发现暴露的高危端口: {dangerous_exposed}")
-                anomalies.append({
-                    'device': nas_device,
-                    'type': 'nas_dangerous_port',
-                    'severity': 'high',
-                    'description': f"NAS暴露高危端口: {', '.join(map(str, dangerous_exposed))}（建议关闭或限制访问）",
-                    'ports': dangerous_exposed
-                })
+                # 过滤掉用户已确认的端口
+                untrusted_dangerous = []
+                externally_accessible = []
+                
+                for port in dangerous_exposed:
+                    trusted_key = f"{nas_ip}:{port}"
+                    if trusted_key in self.trusted_nas_ports:
+                        self.logger.info(f"端口 {port} 已在信任列表中，跳过告警")
+                        continue
+                    
+                    untrusted_dangerous.append(port)
+                    
+                    # 检查是否可以从公网访问
+                    if self._is_port_externally_accessible(nas_ip, port):
+                        externally_accessible.append(port)
+                
+                # 只对未信任且公网可访问的端口告警
+                if externally_accessible:
+                    self.logger.warning(f"NAS {nas_hostname} 发现公网可访问的高危端口: {externally_accessible}")
+                    anomalies.append({
+                        'device': nas_device,
+                        'type': 'nas_dangerous_port',
+                        'severity': 'high',
+                        'description': f"NAS公网可访问高危端口: {', '.join(map(str, externally_accessible))}（建议关闭或限制访问）",
+                        'ports': externally_accessible,
+                        'action': 'trust_port',
+                        'ip': nas_ip
+                    })
+                elif untrusted_dangerous:
+                    # 内网可访问但公网不可访问，仅记录日志
+                    self.logger.info(f"NAS {nas_hostname} 内网开放高危端口(公网不可访问): {untrusted_dangerous}")
             
             # 检查NAS是否暴露了远程访问端口（信息告警，非风险）
             remote_exposed = self._check_exposed_ports(nas_ip, self.nas_remote_ports)
@@ -208,6 +238,45 @@ class NASMonitor:
             return result == 0
         except Exception:
             return False
+    
+    def _is_port_externally_accessible(self, nas_ip: str, port: int) -> bool:
+        """检测端口是否可从公网访问
+        
+        通过对比本地端口和公网IP端口的开放情况来判断。
+        如果公网IP:port可连接，说明该端口被映射到了公网。
+        
+        Args:
+            nas_ip: NAS IP地址
+            port: 端口号
+            
+        Returns:
+            是否可从公网访问
+        """
+        import time
+        
+        # 获取公网IP（带缓存，5分钟有效）
+        current_time = time.time()
+        if not self._cached_external_ip or (current_time - self._ip_cache_time) > 300:
+            self._cached_external_ip = self._get_external_ip()
+            self._ip_cache_time = current_time
+        
+        if not self._cached_external_ip:
+            self.logger.warning("无法获取公网IP，跳过公网访问检测")
+            return False
+        
+        # 如果NAS IP就是公网IP，说明有公网IP，直接检测NAS端口
+        if nas_ip == self._cached_external_ip:
+            return self._check_port_open(nas_ip, port)
+        
+        # 否则分别检测NAS端口和公网端口
+        nas_port_open = self._check_port_open(nas_ip, port)
+        if not nas_port_open:
+            return False
+        
+        # 检测公网IP的同端口是否可访问
+        external_port_open = self._check_port_open(self._cached_external_ip, port)
+        
+        return external_port_open
     
     def monitor_self(self) -> List[Dict]:
         """监控本机外网连接

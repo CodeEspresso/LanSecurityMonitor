@@ -60,16 +60,39 @@ class MLBehaviorDetector:
         """检查并训练模型"""
         training_data = self._prepare_training_data()
         
-        if training_data and len(training_data) >= self.min_training_samples:
-            self.logger.info(f"使用 {len(training_data)} 个样本训练行为异常检测模型...")
+        sample_count = len(training_data) if training_data else 0
+        
+        dynamic_threshold = self._get_dynamic_threshold()
+        
+        if training_data and sample_count >= dynamic_threshold:
+            self.logger.info(f"使用 {sample_count} 个样本训练行为异常检测模型 (阈值: {dynamic_threshold})...")
             success = self.model.train(training_data)
             if success:
                 self.logger.info("行为异常检测模型训练完成")
             else:
                 self.logger.warning("行为异常检测模型训练失败，将使用默认模型")
         else:
-            sample_count = len(training_data) if training_data else 0
-            self.logger.info(f"训练数据不足 ({sample_count}/{self.min_training_samples})，使用规则基础模型")
+            self.logger.info(f"训练数据不足 ({sample_count}/{dynamic_threshold})，使用规则基础模型")
+    
+    def _get_dynamic_threshold(self) -> int:
+        """获取动态训练阈值
+        
+        根据设备数量动态调整阈值：
+        - 设备数 < 10: 使用 min(设备数 * 0.5, 10)
+        - 设备数 10-50: 使用 min(设备数 * 0.5, 30)
+        - 设备数 > 50: 使用 min(设备数 * 0.5, 50)
+        """
+        if not self.database:
+            return self.min_training_samples
+        
+        total_devices = self.database.get_total_devices_count()
+        
+        if total_devices < 10:
+            return max(5, int(total_devices * 0.5))
+        elif total_devices <= 50:
+            return max(10, min(int(total_devices * 0.5), 30))
+        else:
+            return max(15, min(int(total_devices * 0.5), 50))
     
     def _prepare_training_data(self) -> List[Dict]:
         """准备训练数据"""
@@ -82,7 +105,7 @@ class MLBehaviorDetector:
             training_data = []
             
             for mac, behavior_list in behaviors.items():
-                if not behavior_list or len(behavior_list) < 5:
+                if not behavior_list or len(behavior_list) < 2:
                     continue
                 
                 recent_behaviors = behavior_list[-50:]

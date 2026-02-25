@@ -48,14 +48,21 @@ class BehaviorAnalyzer:
         
         # 检查是否为首次运行
         if self.database.is_first_run():
-            self.logger.info("首次运行模式，跳过行为分析")
+            self.logger.info("首次运行模式，跳过行为分析但记录行为数据")
+            # 即使跳过分析，也要记录行为数据
+            for mac, device in devices.items():
+                if not self._is_critical_device(device):
+                    self._record_device_behavior(mac, device)
             return []
         
         # 检查是否应该进行行为分析
-        # 首次运行时（设备数量 < 10），不进行行为分析
         total_devices = self.database.get_total_devices_count()
         if total_devices < 10:
             self.logger.info(f"设备数量为 {total_devices}，跳过行为分析（需要至少10个设备）")
+            # 仍然记录行为数据，以便后续分析
+            for mac, device in devices.items():
+                if not self._is_critical_device(device):
+                    self._record_device_behavior(mac, device)
             return []
         
         self.logger.info("开始分析设备行为")

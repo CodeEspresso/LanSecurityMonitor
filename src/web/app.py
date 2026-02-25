@@ -708,6 +708,43 @@ class WebApp:
                 logger.error(f"标记设备失败: {str(e)}")
                 return jsonify({'success': False, 'message': str(e)}), 500
         
+        @self.app.route('/api/trust-port', methods=['POST'])
+        @login_required
+        def api_trust_port():
+            """添加信任端口到配置"""
+            try:
+                data = request.get_json()
+                ip = data.get('ip')
+                port = data.get('port')
+                
+                if not ip or not port:
+                    return jsonify({'success': False, 'message': '缺少IP或端口参数'}), 400
+                
+                port = int(port)
+                if port < 1 or port > 65535:
+                    return jsonify({'success': False, 'message': '端口号无效'}), 400
+                
+                trusted_key = f"{ip}:{port}"
+                trusted_ports = self.config.get_list('TRUSTED_NAS_PORTS', [])
+                
+                if trusted_key not in trusted_ports:
+                    trusted_ports.append(trusted_key)
+                    success = self.config.set('TRUSTED_NAS_PORTS', ','.join(trusted_ports))
+                    if success:
+                        logger.info(f"已添加信任端口: {trusted_key}")
+                    else:
+                        return jsonify({'success': False, 'message': '保存配置失败'}), 500
+                else:
+                    logger.info(f"端口 {trusted_key} 已在信任列表中")
+                
+                return jsonify({
+                    'success': True,
+                    'message': f'端口 {trusted_key} 已添加到信任列表'
+                })
+            except Exception as e:
+                logger.error(f"添加信任端口失败: {str(e)}")
+                return jsonify({'success': False, 'message': str(e)}), 500
+        
         @self.app.route('/api/blocked-devices', methods=['GET'])
         @login_required
         def api_get_blocked_devices():

@@ -7,7 +7,8 @@ NAS监控模块
 import logging
 import subprocess
 import re
-import time
+import socket
+import urllib.request
 from typing import Dict, List, Optional
 from datetime import datetime
 
@@ -23,10 +24,14 @@ class NASMonitor:
         
         # 配置项
         self.enable_nas_monitor = config.get_bool('ENABLE_NAS_MONITOR', True)
-        self.nas_devices = config.get_list('NAS_DEVICES', [])  # MAC地址列表
+        self.nas_devices = config.get_list('NAS_DEVICES', [])
         self.trusted_external_ips = config.get_list('TRUSTED_EXTERNAL_IPS', [])
-        self.bandwidth_threshold = config.get_int('BANDWIDTH_THRESHOLD', 1024)  # KB/s
+        self.bandwidth_threshold = config.get_int('BANDWIDTH_THRESHOLD', 1024)
         self.connection_timeout = config.get_int('CONNECTION_TIMEOUT', 10)
+        
+        # 本机监控配置
+        self.enable_self_monitor = config.get_bool('ENABLE_SELF_MONITOR', True)
+        self.self_ip = config.get('SELF_IP', '')
     
     def initialize(self):
         """初始化NAS监控器"""
@@ -36,6 +41,34 @@ class NASMonitor:
                 self.logger.info(f"监控的NAS设备: {self.nas_devices}")
             if self.trusted_external_ips:
                 self.logger.info(f"信任的外部IP: {self.trusted_external_ips}")
+        
+        if self.enable_self_monitor:
+            if not self.self_ip:
+                self.self_ip = self._get_local_ip()
+            if self.self_ip:
+                self.logger.info(f"本机IP: {self.self_ip}")
+    
+    def _get_local_ip(self) -> str:
+        """获取本机IP地址（默认网关所在网段）"""
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+            self.logger.info(f"自动检测到本机IP: {local_ip}")
+            return local_ip
+        except Exception as e:
+            self.logger.error(f"获取本机IP失败: {e}")
+            return ''
+    
+    def _get_external_ip(self) -> str:
+        """获取本机外网IP"""
+        try:
+            external_ip = urllib.request.urlopen('https://api.ipify.org', timeout=5).read().decode('utf-8')
+            return external_ip
+        except Exception as e:
+            self.logger.debug(f"获取外网IP失败: {e}")
+            return ''
     
     def monitor_nas_devices(self, current_devices: Dict) -> List[Dict]:
         """监控NAS设备
@@ -93,6 +126,49 @@ class NASMonitor:
                     'description': f"NAS带宽使用异常: {bandwidth_usage} KB/s",
                     'bandwidth': bandwidth_usage
                 })
+        
+        return anomalies
+    
+    def monitor_self(self) -> List[Dict]:
+        """监控本机外网连接
+        
+        Returns:
+            异常列表
+        """
+        if not self.enable_self_monitor:
+            return []
+        
+        if not self.self_ip:
+            self.self_ip = self._get_local_ip()
+        
+        if not self.self_ip:
+            self.logger.warning("无法获取本机IP，跳过本机监控")
+            return []
+        
+        self.logger.info(f"开始监控本机外网连接: {self.self_ip}")
+        
+        anomalies = []
+        
+        external_connections = self._check_external_connections(self.self_ip)
+        
+        for conn in external_connections:
+            if not self._is_trusted_connection(conn):
+                device_info = {
+                    'ip': self.self_ip,
+                    'hostname': 'localhost',
+                    'mac': '00:00:00:00:00:00',
+                    'device_type': 'self'
+                }
+                anomalies.append({
+                    'device': device_info,
+                    'type': 'self_untrusted_external_connection',
+                    'severity': 'high',
+                    'description': f"本机发现非信任外部连接: {conn.get('remote_ip')}:{conn.get('remote_port')}",
+                    'connection': conn
+                })
+        
+        if anomalies:
+            self.logger.warning(f"本机发现 {len(anomalies)} 个非信任外部连接")
         
         return anomalies
     

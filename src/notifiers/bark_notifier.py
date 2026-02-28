@@ -93,7 +93,8 @@ class BarkNotifier:
             # 添加图标和声音
             params = {
                 'icon': self._get_icon(severity),
-                'sound': self._get_sound(severity)
+                'sound': self._get_sound(severity),
+                'group': '局域网安全'
             }
             
             # 发送请求

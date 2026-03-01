@@ -848,19 +848,25 @@ class Database:
             self.logger.error(f"删除威胁记录失败: {str(e)}")
             return False
     
-    def delete_all_threats(self) -> bool:
-        """删除所有威胁记录
+    def delete_all_threats(self, severity: str = None) -> bool:
+        """删除威胁记录（支持按严重程度筛选）
         
+        Args:
+            severity: 严重程度筛选（critical/high/medium/low），None表示删除所有
+            
         Returns:
             是否删除成功
         """
         try:
             cursor = self.conn.cursor()
-            cursor.execute('DELETE FROM threats')
+            if severity:
+                cursor.execute('DELETE FROM threats WHERE severity = ?', (severity,))
+            else:
+                cursor.execute('DELETE FROM threats')
             self.conn.commit()
             return True
         except Exception as e:
-            self.logger.error(f"删除所有威胁记录失败: {str(e)}")
+            self.logger.error(f"删除威胁记录失败: {str(e)}")
             return False
     
     def get_threat_stats(self, days: int = 7) -> Dict[str, Any]:

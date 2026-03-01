@@ -335,16 +335,26 @@ class WebApp:
         @self.app.route('/api/threats/clear', methods=['POST'])
         @login_required
         def api_clear_threats():
-            """清除所有威胁记录"""
+            """清除威胁记录（支持按严重程度筛选）"""
             try:
-                success = self.database.delete_all_threats()
+                # 获取严重程度筛选参数
+                severity = request.args.get('severity', '')
+                
+                success = self.database.delete_all_threats(severity=severity if severity else None)
                 
                 if success:
-                    logger.info("所有威胁记录已清除")
-                    return jsonify({
-                        'success': True,
-                        'message': '所有威胁记录已清除'
-                    })
+                    if severity:
+                        logger.info(f"{severity}级别威胁记录已清除")
+                        return jsonify({
+                            'success': True,
+                            'message': f'{severity}级别威胁记录已清除'
+                        })
+                    else:
+                        logger.info("所有威胁记录已清除")
+                        return jsonify({
+                            'success': True,
+                            'message': '所有威胁记录已清除'
+                        })
                 else:
                     return jsonify({'success': False, 'message': '清除失败'}), 400
             except Exception as e:
@@ -746,6 +756,7 @@ class WebApp:
                 data = request.get_json()
                 device_type = data.get('device_type')
                 vendor = data.get('vendor')
+                hostname = data.get('hostname')
                 notes = data.get('notes', '')
                 
                 if not device_type:
@@ -759,6 +770,8 @@ class WebApp:
                 device['device_type'] = device_type
                 if vendor:
                     device['vendor'] = vendor
+                if hostname:
+                    device['hostname'] = hostname
                 if notes:
                     device['notes'] = notes
                 

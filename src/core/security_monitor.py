@@ -140,7 +140,26 @@ class SecurityMonitor:
             
             # 3. ARP绑定检测（新增）
             self.logger.info("步骤3: ARP绑定检测...")
-            arp_anomalies = self._detect_arp_anomalies(current_devices)
+            
+            # 收集设备关联信息，用于ARP检测排除已知设备
+            # 包含：当前设备 inherited_info + known_devices 中所有 inherited_info
+            correlation_info = {}
+            
+            for mac, device in current_devices.items():
+                if device.get('inherited_info', {}).get('original_mac'):
+                    original_mac = device['inherited_info']['original_mac']
+                    correlation_info[mac] = original_mac
+                    correlation_info[original_mac] = mac
+            
+            for mac, device in self.known_devices.items():
+                if device.get('inherited_info', {}).get('original_mac'):
+                    original_mac = device['inherited_info']['original_mac']
+                    if mac not in correlation_info:
+                        correlation_info[mac] = original_mac
+                    if original_mac not in correlation_info:
+                        correlation_info[original_mac] = mac
+            
+            arp_anomalies = self._detect_arp_anomalies(current_devices, correlation_info)
             
             if arp_anomalies:
                 self.logger.warning(f"发现 {len(arp_anomalies)} 个ARP绑定异常")
@@ -230,15 +249,19 @@ class SecurityMonitor:
             self.logger.error(f"安全检查失败: {str(e)}", exc_info=True)
             raise
     
-    def _detect_arp_anomalies(self, current_devices: Dict) -> List[Dict]:
+    def _detect_arp_anomalies(self, current_devices: Dict, correlation_info: Dict = None) -> List[Dict]:
         """检测ARP绑定异常
         
         Args:
             current_devices: 当前设备字典
+            correlation_info: 设备关联信息，用于排除MAC随机化导致的绑定变化
             
         Returns:
             ARP异常列表
         """
+        if correlation_info is None:
+            correlation_info = {}
+        
         self.arp_monitor.refresh_arp_table()
         
         anomalies = []
@@ -248,19 +271,51 @@ class SecurityMonitor:
             if not ip:
                 continue
             
-            binding_result = self.arp_monitor.check_binding_changes(ip, mac)
+            # 检查是否是已知的MAC随机化设备
+            is_known_mac_randomization = mac in correlation_info
             
-            if not binding_result['is_normal']:
-                anomalies.append({
-                    'type': 'arp_binding_anomaly',
-                    'severity': 'high',
-                    'device': device,
-                    'device_ip': ip,
-                    'device_mac': mac,
-                    'description': binding_result['details'],
-                    'risk_score': binding_result['risk_score'],
-                    'anomaly_type': binding_result['anomaly_type']
-                })
+            # 检查IP历史绑定中是否有已知设备
+            if not is_known_mac_randomization and hasattr(self, 'device_correlator'):
+                ip_history_macs = self.device_correlator._ip_to_macs.get(ip, [])
+                for historical_mac in ip_history_macs:
+                    if historical_mac != mac and historical_mac in correlation_info:
+                        is_known_mac_randomization = True
+                        break
+            
+            if is_known_mac_randomization:
+                original_mac = correlation_info.get(mac, mac)
+                self.logger.info(
+                    f"设备 {mac}({ip}) 被识别为已知设备的MAC随机化，"
+                    f"降低ARP绑定异常风险等级"
+                )
+                binding_result = self.arp_monitor.check_binding_changes(ip, mac)
+                if not binding_result['is_normal']:
+                    binding_result['risk_score'] = int(binding_result['risk_score'] * 0.3)
+                    binding_result['is_known_mac_randomization'] = True
+                    anomalies.append({
+                        'type': 'arp_binding_anomaly',
+                        'severity': 'medium',
+                        'device': device,
+                        'device_ip': ip,
+                        'device_mac': mac,
+                        'description': binding_result['details'] + ' (已知MAC随机化设备)',
+                        'risk_score': binding_result['risk_score'],
+                        'anomaly_type': binding_result['anomaly_type']
+                    })
+            else:
+                binding_result = self.arp_monitor.check_binding_changes(ip, mac)
+                
+                if not binding_result['is_normal']:
+                    anomalies.append({
+                        'type': 'arp_binding_anomaly',
+                        'severity': 'high',
+                        'device': device,
+                        'device_ip': ip,
+                        'device_mac': mac,
+                        'description': binding_result['details'],
+                        'risk_score': binding_result['risk_score'],
+                        'anomaly_type': binding_result['anomaly_type']
+                    })
             
             if not device.get('ip'):
                 continue
@@ -385,10 +440,18 @@ class SecurityMonitor:
                 # 是同一设备（MAC随机化），不作为新设备处理
                 original_mac = correlation_result.get('original_mac')
                 similarity = correlation_result.get('similarity', 0)
+                match_type = correlation_result.get('match_type', 'unknown')
+                
                 self.logger.info(
                     f"设备 {current_devices[mac].get('ip')} 判断为同一设备(MAC随机化): "
-                    f"新MAC={mac}, 原MAC={original_mac}, 相似度={similarity:.1%}"
+                    f"新MAC={mac}, 原MAC={original_mac}, 相似度={similarity:.1%}, 匹配类型={match_type}"
                 )
+                
+                # 如果相似度 >= 95%，合并画像
+                if similarity >= self.device_correlator.merge_threshold:
+                    self.device_correlator.merge_device_profiles(original_mac, mac)
+                    self.logger.info(f"已合并设备画像: {original_mac} -> {mac}")
+                
                 # 继承原设备的信息
                 if original_mac in self.known_devices:
                     original_device = self.known_devices[original_mac]

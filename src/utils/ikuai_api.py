@@ -26,13 +26,16 @@ class IKuaiAPI:
         self.ikuai_username = config.get('IKUAI_USERNAME', 'admin')
         
         # 密码从环境变量读取（安全）
-        if secure_config:
-            self.ikuai_password = secure_config.get('IKUAI_PASSWORD', '', sensitive=True)
-        else:
-            self.ikuai_password = config.get('IKUAI_PASSWORD', '', sensitive=True)
+        self.ikuai_password = self._get_password()
         
         self.session = None
         self.session_id = None
+    
+    def _get_password(self):
+        """获取密码（优先从secure_config获取）"""
+        if self.secure_config:
+            return self.secure_config.get('IKUAI_PASSWORD', '')
+        return self.config.get('IKUAI_PASSWORD', '')
     
     def initialize(self):
         """初始化API连接"""

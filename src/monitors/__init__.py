@@ -11,3 +11,4 @@ from .device_risk_analyzer import DeviceRiskAnalyzer
 from .bandwidth_monitor import BandwidthMonitor
 from .device_analyzer import DeviceAnalyzer
 from .behavior_analyzer import BehaviorAnalyzer
+from .device_correlator import DeviceCorrelator

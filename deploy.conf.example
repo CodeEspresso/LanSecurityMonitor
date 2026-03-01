@@ -1,0 +1,19 @@
+#!/bin/bash
+# -*- coding: utf-8 -*-
+# 部署配置文件模板
+# 复制此文件为 deploy.conf 并填入实际配置
+# cp deploy.conf.example deploy.conf
+
+# ==================== 部署配置 ====================
+
+# NAS配置
+NAS_HOST="192.168.31.38"
+NAS_PORT="10992"
+NAS_USER="WangMingzhi"
+NAS_PATH="/vol2/1000/docker/LanSecurityMonitor"
+
+# 本地路径
+LOCAL_PATH="/Volumes/PSSD/项目/LanSecurityMonitor"
+
+# SSH密钥路径（可选，用于免密登录）
+# SSH_KEY_PATH="~/.ssh/id_rsa"

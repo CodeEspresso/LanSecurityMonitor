@@ -17,6 +17,7 @@ from ..monitors.behavior_analyzer import BehaviorAnalyzer
 from ..monitors.bandwidth_monitor import BandwidthMonitor
 from ..monitors.arp_monitor import ARPMonitor
 from ..monitors.dns_monitor import DNSMonitor
+from ..monitors.device_correlator import DeviceCorrelator
 from ..notifiers.bark_notifier import BarkNotifier
 from ..utils.database import Database
 from ..utils.metrics_exporter import MetricsExporter
@@ -45,6 +46,7 @@ class SecurityMonitor:
         self.ikuai_api = IKuaiAPI(config, secure_config)
         self.arp_monitor = ARPMonitor(config, self.database)
         self.dns_monitor = DNSMonitor(config, secure_config)
+        self.device_correlator = DeviceCorrelator(config, self.database)
         
         # 状态存储
         self.known_devices = {}
@@ -108,6 +110,9 @@ class SecurityMonitor:
         
         # 初始化DNS监控器
         self.dns_monitor.initialize()
+        
+        # 初始化设备关联器
+        self.device_correlator.initialize()
         
         self.logger.info("监控系统初始化完成")
     
@@ -364,13 +369,40 @@ class SecurityMonitor:
         current_macs = set(current_devices.keys())
         known_macs = set(self.known_devices.keys())
         
+        # 检测离线设备（先检测离线，再处理新设备）
+        for mac in known_macs - current_macs:
+            offline_device = self.known_devices[mac]
+            offline_devices.append(offline_device)
+            # 记录设备下线，供设备关联器使用
+            self.device_correlator.record_device_offline(offline_device)
+        
         # 检测新设备
         for mac in current_macs - known_macs:
-            new_devices.append(current_devices[mac])
-        
-        # 检测离线设备
-        for mac in known_macs - current_macs:
-            offline_devices.append(self.known_devices[mac])
+            # 检查是否是MAC随机化的同一设备
+            correlation_result = self.device_correlator.check_device_reappeared(current_devices[mac])
+            
+            if correlation_result and correlation_result.get('is_same_device'):
+                # 是同一设备（MAC随机化），不作为新设备处理
+                original_mac = correlation_result.get('original_mac')
+                similarity = correlation_result.get('similarity', 0)
+                self.logger.info(
+                    f"设备 {current_devices[mac].get('ip')} 判断为同一设备(MAC随机化): "
+                    f"新MAC={mac}, 原MAC={original_mac}, 相似度={similarity:.1%}"
+                )
+                # 继承原设备的信息
+                if original_mac in self.known_devices:
+                    original_device = self.known_devices[original_mac]
+                    current_devices[mac]['inherited_info'] = {
+                        'original_mac': original_mac,
+                        'similarity': similarity,
+                        'device_type': original_device.get('device_type'),
+                        'vendor': original_device.get('vendor'),
+                        'hostname': original_device.get('hostname'),
+                        'category': original_device.get('category')
+                    }
+            else:
+                # 确实是新设备
+                new_devices.append(current_devices[mac])
         
         return new_devices, offline_devices
     
@@ -565,6 +597,26 @@ class SecurityMonitor:
                         # 保留 notes 和其他用户设置的字段
                         if old_device.get('notes'):
                             device['notes'] = old_device['notes']
+                    else:
+                        inherited_info = device.get('inherited_info')
+                        if inherited_info:
+                            original_mac = inherited_info.get('original_mac')
+                            if original_mac:
+                                original_device = self.database.load_device_by_mac(original_mac)
+                                if original_device:
+                                    if inherited_info.get('device_type'):
+                                        device['device_type'] = inherited_info['device_type']
+                                    if inherited_info.get('vendor'):
+                                        device['vendor'] = inherited_info['vendor']
+                                    if inherited_info.get('hostname'):
+                                        device['hostname'] = inherited_info['hostname']
+                                    if inherited_info.get('category'):
+                                        device['category'] = inherited_info['category']
+                                    device['is_known'] = True
+                                    self.logger.info(
+                                        f"设备 {mac} 继承了原设备 {original_mac} 的信息 "
+                                        f"(相似度: {inherited_info.get('similarity', 0):.1%})"
+                                    )
                 except Exception as e:
                     self.logger.debug(f"获取设备信息失败: {e}")
             

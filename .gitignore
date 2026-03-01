@@ -57,3 +57,10 @@ config/config.env.local
 *.tmp
 *.bak
 *.new
+
+# Test files
+test_*.py
+*_test.py
+
+# Deploy config (sensitive)
+deploy.conf

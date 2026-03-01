@@ -32,6 +32,10 @@ services:
       - WEB_PASSWORD=${WEB_PASSWORD:-admin123}
       # Web界面密钥
       - WEB_SECRET_KEY=${WEB_SECRET_KEY:-lan-security-monitor-secret-key-2024}
+      # AdGuard Home 配置
+      - ADGUARD_URL=${ADGUARD_URL:-}
+      - ADGUARD_USERNAME=${ADGUARD_USERNAME:-admin}
+      - ADGUARD_PASSWORD=${ADGUARD_PASSWORD:-}
     
     # 卷挂载
     volumes:

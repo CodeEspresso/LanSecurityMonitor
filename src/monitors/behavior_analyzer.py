@@ -264,9 +264,13 @@ class BehaviorAnalyzer:
             if self._is_within_tolerance(current_hour, active_hours, self.active_hour_tolerance):
                 self.logger.debug(f"设备 {device.get('mac')} 当前时间 {current_hour} 在活跃时间容差范围内")
                 return False, ""
+            if self._should_skip_time_check(device):
+                return False, ""
             return True, f"设备在非活跃时间上线 (当前: {current_hour}:00, 活跃时间: {active_hours})"
         
         if current_day not in active_days:
+            if self._should_skip_time_check(device):
+                return False, ""
             return True, f"设备在非活跃日期上线 (当前: {self._get_day_name(current_day)}, 活跃日期: {[self._get_day_name(d) for d in active_days]})"
         
         return False, ""
@@ -350,7 +354,7 @@ class BehaviorAnalyzer:
         device_type = device.get('device_type', '')
         category = device.get('category', '')
         
-        skip_types = ['smart_home', 'tv', 'camera', 'printer']
+        skip_types = ['smart_home', 'tv', 'camera', 'printer', 'iot']
         
         if device_type in skip_types:
             return True

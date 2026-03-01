@@ -290,6 +290,100 @@
                                 <i class="bi bi-check-lg"></i> 保存设置
                             </button>
                         </div>
+                        <div class="mt-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="mb-0"><i class="bi bi-shield-fill-x"></i> 当前封禁设备</h6>
+                                <button class="btn btn-sm btn-outline-secondary" onclick="loadBlockedDevices()">
+                                    <i class="bi bi-arrow-clockwise"></i> 刷新
+                                </button>
+                            </div>
+                            <div class="table-responsive" style="max-height: 300px;">
+                                <table class="table table-sm table-hover" id="blocked-devices-table">
+                                    <thead class="table-light sticky-top">
+                                        <tr>
+                                            <th>IP地址</th>
+                                            <th>MAC地址</th>
+                                            <th>厂商</th>
+                                            <th>封禁原因</th>
+                                            <th>封禁时间</th>
+                                            <th>操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="blocked-devices-body">
+                                        <tr><td colspan="6" class="text-center text-muted">加载中...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div id="no-blocked-devices" class="text-center text-muted py-3" style="display: none;">
+                                <i class="bi bi-check-circle"></i> 当前没有封禁设备
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4 mt-0">
+            <div class="col-12">
+                <div class="card settings-card">
+                    <div class="card-header">
+                        <i class="bi bi-shield-exclamation"></i>DNS安全检测
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">
+                            <i class="bi bi-info-circle"></i>
+                            配置DNS域名异常检测和隧道识别功能
+                        </p>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="dga_detection_enabled">
+                                    <label class="form-check-label fw-semibold" for="dga_detection_enabled">启用 DGA 域名检测</label>
+                                </div>
+                                <small class="text-muted">使用机器学习算法检测域名生成算法(DGA)生成的恶意域名</small>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="dns_tunnel_enabled">
+                                    <label class="form-check-label fw-semibold" for="dns_tunnel_enabled">启用 DNS 隧道检测</label>
+                                </div>
+                                <small class="text-muted">检测通过DNS协议进行数据外传的隧道攻击</small>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label small text-muted mb-1">DGA检测方法</label>
+                                <select class="form-select form-select-sm" id="dga_detection_method">
+                                    <option value="pretrained">预训练模型 (推荐)</option>
+                                    <option value="ml">机器学习模型</option>
+                                    <option value="both">组合检测</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label small text-muted mb-1">DGA置信度阈值</label>
+                                <div class="input-group input-group-sm">
+                                    <input type="number" class="form-control" id="dga_threshold" min="0" max="1" step="0.1" value="0.7">
+                                    <span class="input-group-text">0.0-1.0</span>
+                                </div>
+                                <small class="text-muted">超过此值视为恶意域名（建议0.7）</small>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label small text-muted mb-1">DNS隧道QPS阈值</label>
+                                <div class="input-group input-group-sm">
+                                    <input type="number" class="form-control" id="dns_tunnel_qps" min="1" max="1000" value="50">
+                                    <span class="input-group-text">请求/秒</span>
+                                </div>
+                                <small class="text-muted">超过此QPS视为疑似DNS隧道</small>
+                            </div>
+                            <div class="col-md-6 mb-3 d-flex align-items-end">
+                                <button class="btn btn-primary btn-sm" onclick="saveDNSDetectionSettings()">
+                                    <i class="bi bi-check-lg"></i> 保存设置
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -697,7 +791,132 @@
             }
         }
         
+        async function loadBlockedDevices() {
+            try {
+                const response = await apiRequest('/api/blocked-devices?active_only=true');
+                const tbody = document.getElementById('blocked-devices-body');
+                const table = document.getElementById('blocked-devices-table');
+                const noBlocked = document.getElementById('no-blocked-devices');
+                
+                if (!response || !response.success) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-danger">加载失败</td></tr>';
+                    return;
+                }
+                
+                const devices = response.blocked_devices || [];
+                document.getElementById('blocked-count').textContent = devices.length;
+                
+                if (devices.length === 0) {
+                    table.style.display = 'none';
+                    noBlocked.style.display = 'block';
+                    return;
+                }
+                
+                table.style.display = 'table';
+                noBlocked.style.display = 'none';
+                
+                tbody.innerHTML = devices.map(device => {
+                    const blockedAt = device.blocked_at ? new Date(device.blocked_at).toLocaleString('zh-CN') : '-';
+                    const vendor = device.vendor || '-';
+                    const reason = device.reason || '手动封禁';
+                    const ip = device.ip || '-';
+                    const mac = device.mac || '-';
+                    
+                    return `<tr>
+                        <td>${escapeHtml(ip)}</td>
+                        <td><code>${escapeHtml(mac)}</code></td>
+                        <td>${escapeHtml(vendor)}</td>
+                        <td>${escapeHtml(reason)}</td>
+                        <td>${blockedAt}</td>
+                        <td>
+                            <button class="btn btn-sm btn-success" onclick="unblockDevice('${escapeHtml(mac)}')" title="解除封禁">
+                                <i class="bi bi-unlock"></i> 解封
+                            </button>
+                        </td>
+                    </tr>`;
+                }).join('');
+            } catch (error) {
+                console.error('加载封禁设备失败:', error);
+                document.getElementById('blocked-devices-body').innerHTML = 
+                    '<tr><td colspan="6" class="text-center text-danger">加载失败</td></tr>';
+            }
+        }
+        
+        async function unblockDevice(mac) {
+            if (!confirm(`确定要解除设备 ${mac} 的封禁吗？`)) {
+                return;
+            }
+            
+            try {
+                const response = await apiRequest(`/api/devices/${mac}/unblock`, {
+                    method: 'POST',
+                    body: JSON.stringify({ notes: '用户手动解除封禁' })
+                });
+                
+                if (response && response.success) {
+                    showNotification('设备已解除封禁', 'success');
+                    loadBlockedDevices();
+                } else {
+                    showNotification(response?.message || '解除封禁失败', 'danger');
+                }
+            } catch (error) {
+                console.error('解除封禁失败:', error);
+                showNotification('解除封禁失败', 'danger');
+            }
+        }
+        
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        async function loadDNSDetectionSettings() {
+            try {
+                const response = await apiRequest('/api/settings/dns-detection');
+                if (response && response.success) {
+                    const settings = response.settings;
+                    document.getElementById('dga_detection_enabled').checked = settings.enable_dga_detection || false;
+                    document.getElementById('dns_tunnel_enabled').checked = settings.enable_dns_tunnel_detection || false;
+                    document.getElementById('dga_detection_method').value = settings.dga_detection_method || 'pretrained';
+                    document.getElementById('dga_threshold').value = settings.dga_threshold || 0.7;
+                    document.getElementById('dns_tunnel_qps').value = settings.dns_tunnel_qps_threshold || 50;
+                }
+            } catch (error) {
+                console.error('加载DNS检测设置失败:', error);
+            }
+        }
+        
+        async function saveDNSDetectionSettings() {
+            try {
+                const settings = {
+                    'enable_dga_detection': document.getElementById('dga_detection_enabled').checked,
+                    'enable_dns_tunnel_detection': document.getElementById('dns_tunnel_enabled').checked,
+                    'dga_detection_method': document.getElementById('dga_detection_method').value,
+                    'dga_threshold': parseFloat(document.getElementById('dga_threshold').value) || 0.7,
+                    'dns_tunnel_qps_threshold': parseInt(document.getElementById('dns_tunnel_qps').value) || 50
+                };
+                
+                const response = await apiRequest('/api/settings/dns-detection', {
+                    method: 'POST',
+                    body: JSON.stringify({ settings: settings })
+                });
+                
+                if (response && response.success) {
+                    showNotification('DNS检测设置已保存', 'success');
+                } else {
+                    showNotification(response?.message || '保存失败', 'danger');
+                }
+            } catch (error) {
+                console.error('保存DNS检测设置失败:', error);
+                showNotification('保存失败', 'danger');
+            }
+        }
+        
         loadAutoBlockSettings();
+        loadBlockedDevices();
+        loadDNSDetectionSettings();
     </script>
 </body>
 </html>

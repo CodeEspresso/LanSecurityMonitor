@@ -16,6 +16,7 @@ from ..monitors.nas_monitor import NASMonitor
 from ..monitors.behavior_analyzer import BehaviorAnalyzer
 from ..monitors.bandwidth_monitor import BandwidthMonitor
 from ..monitors.arp_monitor import ARPMonitor
+from ..monitors.dns_monitor import DNSMonitor
 from ..notifiers.bark_notifier import BarkNotifier
 from ..utils.database import Database
 from ..utils.metrics_exporter import MetricsExporter
@@ -43,6 +44,7 @@ class SecurityMonitor:
         self.metrics_exporter = MetricsExporter(config, self.database)
         self.ikuai_api = IKuaiAPI(config, secure_config)
         self.arp_monitor = ARPMonitor(config, self.database)
+        self.dns_monitor = DNSMonitor(config, secure_config)
         
         # 状态存储
         self.known_devices = {}
@@ -103,6 +105,9 @@ class SecurityMonitor:
         
         # 初始化ARP监控器
         self.arp_monitor.initialize()
+        
+        # 初始化DNS监控器
+        self.dns_monitor.initialize()
         
         self.logger.info("监控系统初始化完成")
     
@@ -188,14 +193,23 @@ class SecurityMonitor:
                 for anomaly in bandwidth_anomalies:
                     self._handle_threats([anomaly])
             
-            # 9. 更新设备状态
-            self.logger.info("步骤9: 更新设备状态...")
+            # 9. DNS监控（DGA检测、恶意域名）
+            self.logger.info("步骤9: DNS监控...")
+            dns_threats = self.dns_monitor.check()
+            
+            if dns_threats:
+                self.logger.warning(f"发现 {len(dns_threats)} 个DNS威胁")
+                for threat in dns_threats:
+                    self._handle_threats([threat])
+            
+            # 10. 更新设备状态
+            self.logger.info("步骤10: 更新设备状态...")
             self._update_device_status(current_devices)
             
-            # 9. 检查是否应该退出首次运行模式
+            # 10. 检查是否应该退出首次运行模式
             self._check_and_exit_first_run_mode()
             
-            # 10. 保存检查结果
+            # 11. 保存检查结果
             self.database.save_check_result({
                 'timestamp': datetime.now().isoformat(),
                 'total_devices': len(current_devices),
@@ -459,6 +473,13 @@ class SecurityMonitor:
                     device=device,
                     is_threat=True
                 )
+            
+            # 高危DNS威胁自动隔离
+            if severity in ['critical', 'high'] and device:
+                enable_auto_isolate = self.config.get_bool('ENABLE_AUTO_ISOLATE', False)
+                if enable_auto_isolate:
+                    self.logger.critical(f"高风险威胁: {threat_type}, 准备隔离设备 {device.get('ip')}")
+                    self._isolate_device(device)
             
             self.database.save_threat(threat)
     

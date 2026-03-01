@@ -100,11 +100,14 @@ class DeviceCorrelator:
         
         self.enable_correlation = config.get_bool('ENABLE_DEVICE_CORRELATION', True)
         self.similarity_threshold = config.get_float('DEVICE_SIMILARITY_THRESHOLD', 0.7)
+        self.merge_threshold = config.get_float('DEVICE_MERGE_THRESHOLD', 0.95)
         self.offline_time_window = config.get_int('OFFLINE_TIME_WINDOW', 3600)
+        self.history_time_window = config.get_int('DEVICE_HISTORY_WINDOW', 86400)
         
         self._device_profiles = {}
         self._ip_to_macs = defaultdict(list)
         self._recent_offline_devices = {}
+        self._historical_offline_devices = {}
     
     def initialize(self):
         """初始化设备关联器"""
@@ -115,6 +118,7 @@ class DeviceCorrelator:
         self.logger.info("初始化设备关联器")
         self.logger.info(f"相似度阈值: {self.similarity_threshold}")
         self.logger.info(f"离线时间窗口: {self.offline_time_window}秒")
+        self.logger.info(f"历史设备窗口: {self.history_time_window}秒")
         
         self._load_profiles_from_database()
     
@@ -211,6 +215,14 @@ class DeviceCorrelator:
             'offline_time': time.time()
         }
         
+        if ip not in self._historical_offline_devices:
+            self._historical_offline_devices[ip] = []
+        self._historical_offline_devices[ip].append({
+            'mac': mac,
+            'profile': profile,
+            'offline_time': time.time()
+        })
+        
         self.logger.debug(f"记录设备下线: {mac} ({ip})")
     
     def check_device_reappeared(self, device: Dict) -> Optional[Dict]:
@@ -237,6 +249,56 @@ class DeviceCorrelator:
         if not current_mac or not current_ip:
             return None
         
+        result = self._check_recent_offline(device, current_mac, current_ip)
+        if result:
+            return result
+        
+        result = self._check_historical_offline(device, current_mac, current_ip)
+        if result:
+            return result
+        
+        result = self._check_same_ip_different_mac(device, current_mac, current_ip)
+        if result:
+            return result
+        
+        result = self._check_profile_only(device, current_mac)
+        if result:
+            return result
+        
+        return None
+    
+    def _check_profile_only(self, device: Dict, current_mac: str) -> Optional[Dict]:
+        """纯画像匹配（不看IP），用于IP变化但设备行为相似的情况"""
+        if not self._device_profiles:
+            return None
+        
+        best_match = None
+        best_similarity = 0
+        
+        for original_mac, profile in self._device_profiles.items():
+            if original_mac == current_mac:
+                continue
+            
+            if profile.ip == device.get('ip'):
+                continue
+            
+            similarity = self._calculate_similarity(device, profile)
+            
+            if similarity >= self.similarity_threshold and similarity > best_similarity:
+                best_similarity = similarity
+                best_match = {
+                    'is_same_device': True,
+                    'original_mac': original_mac,
+                    'current_mac': current_mac,
+                    'similarity': similarity,
+                    'match_type': 'profile_only',
+                    'reason': self._get_similarity_reason(device, profile, similarity)
+                }
+        
+        return best_match
+    
+    def _check_recent_offline(self, device: Dict, current_mac: str, current_ip: str) -> Optional[Dict]:
+        """检查最近下线的设备（短期窗口）"""
         if current_ip not in self._recent_offline_devices:
             return None
         
@@ -261,11 +323,12 @@ class DeviceCorrelator:
                 'original_mac': original_mac,
                 'current_mac': current_mac,
                 'similarity': similarity,
+                'match_type': 'recent_offline',
                 'reason': self._get_similarity_reason(device, original_profile, similarity)
             }
             
             self.logger.info(
-                f"检测到MAC随机化设备: {current_mac}({current_ip}) "
+                f"检测到MAC随机化设备(近期下线): {current_mac}({current_ip}) "
                 f"可能是 {original_mac} (相似度: {similarity:.1%})"
             )
             
@@ -274,6 +337,97 @@ class DeviceCorrelator:
             return result
         
         return None
+    
+    def _check_historical_offline(self, device: Dict, current_mac: str, current_ip: str) -> Optional[Dict]:
+        """检查历史下线的设备（长期窗口）"""
+        if current_ip not in self._historical_offline_devices:
+            return None
+        
+        candidates = self._historical_offline_devices[current_ip]
+        current_time = time.time()
+        
+        valid_candidates = [
+            c for c in candidates
+            if current_time - c['offline_time'] <= self.history_time_window
+        ]
+        
+        if not valid_candidates:
+            del self._historical_offline_devices[current_ip]
+            return None
+        
+        best_match = None
+        best_similarity = 0
+        
+        for offline_info in valid_candidates:
+            original_mac = offline_info['mac']
+            original_profile = offline_info['profile']
+            
+            if original_mac == current_mac:
+                continue
+            
+            similarity = self._calculate_similarity(device, original_profile)
+            
+            if similarity >= self.similarity_threshold and similarity > best_similarity:
+                best_similarity = similarity
+                best_match = {
+                    'is_same_device': True,
+                    'original_mac': original_mac,
+                    'current_mac': current_mac,
+                    'similarity': similarity,
+                    'match_type': 'historical_offline',
+                    'reason': self._get_similarity_reason(device, original_profile, similarity)
+                }
+        
+        if best_match:
+            self.logger.info(
+                f"检测到MAC随机化设备(历史记录): {current_mac}({current_ip}) "
+                f"可能是 {best_match['original_mac']} (相似度: {best_similarity:.1%})"
+            )
+        
+        return best_match
+    
+    def _check_same_ip_different_mac(self, device: Dict, current_mac: str, current_ip: str) -> Optional[Dict]:
+        """检查同IP不同MAC的设备（无需先下线）"""
+        if current_ip not in self._ip_to_macs:
+            return None
+        
+        previous_macs = self._ip_to_macs[current_ip]
+        
+        if len(previous_macs) <= 1 and current_mac in previous_macs:
+            return None
+        
+        best_match = None
+        best_similarity = 0
+        
+        for original_mac in previous_macs:
+            if original_mac == current_mac:
+                continue
+            
+            if original_mac not in self._device_profiles:
+                continue
+            
+            original_profile = self._device_profiles[original_mac]
+            
+            similarity = self._calculate_similarity(device, original_profile)
+            
+            if similarity >= self.similarity_threshold and similarity > best_similarity:
+                best_similarity = similarity
+                best_match = {
+                    'is_same_device': True,
+                    'original_mac': original_mac,
+                    'current_mac': current_mac,
+                    'similarity': similarity,
+                    'match_type': 'same_ip_different_mac',
+                    'reason': self._get_similarity_reason(device, original_profile, similarity)
+                }
+        
+        if best_match:
+            self.logger.info(
+                f"检测到MAC随机化设备(同IP匹配): {current_mac}({current_ip}) "
+                f"可能是 {best_match['original_mac']} (相似度: {best_similarity:.1%})"
+            )
+        
+        return best_match
     
     def _calculate_similarity(self, device: Dict, profile: DeviceProfile) -> float:
         """计算设备与历史画像的相似度
@@ -286,10 +440,11 @@ class DeviceCorrelator:
             相似度 (0-1)
         """
         weights = {
-            'dns': 0.35,
-            'traffic': 0.25,
+            'dns': 0.30,
+            'traffic': 0.20,
             'hostname': 0.20,
-            'active_hours': 0.20
+            'device_type': 0.15,
+            'active_hours': 0.15
         }
         
         total_score = 0.0
@@ -303,10 +458,43 @@ class DeviceCorrelator:
         hostname_score = self._calculate_hostname_similarity(device, profile)
         total_score += hostname_score * weights['hostname']
         
+        device_type_score = self._calculate_device_type_similarity(device, profile)
+        total_score += device_type_score * weights['device_type']
+        
         active_hours_score = self._calculate_active_hours_similarity(device, profile)
         total_score += active_hours_score * weights['active_hours']
         
         return min(total_score, 1.0)
+    
+    def _calculate_device_type_similarity(self, device: Dict, profile: DeviceProfile) -> float:
+        """计算设备类型相似度"""
+        current_type = (device.get('device_type', '') or '').lower()
+        old_type = (profile.device_type or '').lower()
+        
+        if not current_type and not old_type:
+            return 0.5
+        
+        if not current_type or not old_type:
+            return 0.0
+        
+        if current_type == old_type:
+            return 1.0
+        
+        type_groups = {
+            'phone': ['phone', 'mobile', 'iphone', 'android', 'smartphone'],
+            'computer': ['computer', 'desktop', 'laptop', 'mac', 'pc', 'windows', 'linux'],
+            'tablet': ['tablet', 'ipad', 'android tablet'],
+            'tv': ['tv', 'television', 'smarttv', 'roku', 'firestick', 'chromecast'],
+            'iot': ['iot', 'smart', 'sensor', 'camera', 'bulb', 'plug', 'speaker'],
+            'nas': ['nas', 'storage', 'synology', 'qnap'],
+            'router': ['router', 'gateway', 'ap'],
+        }
+        
+        for group_name, keywords in type_groups.items():
+            if any(kw in current_type for kw in keywords) and any(kw in old_type for kw in keywords):
+                return 0.8
+        
+        return 0.0
     
     def _calculate_dns_similarity(self, device: Dict, profile: DeviceProfile) -> float:
         """计算DNS查询相似度"""
@@ -457,6 +645,7 @@ class DeviceCorrelator:
             new_mac: 新MAC地址
         """
         if original_mac not in self._device_profiles:
+            self.logger.warning(f"原设备画像不存在: {original_mac}")
             return
         
         original_profile = self._device_profiles[original_mac]
@@ -474,5 +663,10 @@ class DeviceCorrelator:
         
         if new_mac != original_mac and original_mac in self._device_profiles:
             del self._device_profiles[original_mac]
+        
+        original_ip = original_profile.ip
+        
+        if new_mac not in self._ip_to_macs[original_ip]:
+            self._ip_to_macs[original_ip].append(new_mac)
         
         self.logger.info(f"已合并设备画像: {original_mac} -> {new_mac}")

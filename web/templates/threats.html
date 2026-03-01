@@ -467,18 +467,35 @@
 
         // 确认清除威胁
         function confirmClearThreats() {
+            const severity = document.getElementById('severity-filter').value;
             const modal = new bootstrap.Modal(document.getElementById('clear-threats-modal'));
+            
+            // 更新模态框文本
+            const messageEl = document.querySelector('#clear-threats-modal p');
+            if (severity && severity !== 'all') {
+                const severityText = {critical: '严重', high: '高', medium: '中', low: '低'};
+                messageEl.textContent = `确定要清除所有 ${severityText[severity] || severity} 级别威胁记录吗？`;
+                document.getElementById('clear-threats-modal').dataset.severity = severity;
+            } else {
+                messageEl.textContent = '确定要清除所有威胁记录吗？';
+                document.getElementById('clear-threats-modal').dataset.severity = '';
+            }
+            
             modal.show();
         }
-
-        // 清除所有威胁记录
+        
+        // 清除威胁记录
         async function clearThreats() {
             try {
-                const response = await apiRequest('/api/threats/clear', { method: 'POST' });
+                const modal = document.getElementById('clear-threats-modal');
+                const severity = modal.dataset.severity || '';
+                
+                const url = severity ? `/api/threats/clear?severity=${severity}` : '/api/threats/clear';
+                const response = await apiRequest(url, { method: 'POST' });
                 
                 if (response && response.success) {
                     bootstrap.Modal.getInstance(document.getElementById('clear-threats-modal')).hide();
-                    showNotification('所有威胁记录已清除', 'success');
+                    showNotification(response.message || '威胁记录已清除', 'success');
                     loadThreatStats();
                     loadThreats();
                 } else {

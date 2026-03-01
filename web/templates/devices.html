@@ -190,6 +190,10 @@
                         </select>
                     </div>
                     <div class="mb-3">
+                        <label class="form-label">主机名（可选）</label>
+                        <input type="text" class="form-control" id="mark-device-hostname" placeholder="例如：NAS、Home-Server等">
+                    </div>
+                    <div class="mb-3">
                         <label class="form-label">厂商名称（可修改）</label>
                         <input type="text" class="form-control" id="mark-device-vendor" placeholder="例如：Apple、群晖、小米等">
                         <small class="text-muted">随机MAC地址可能导致厂商识别错误，可手动修正</small>
@@ -316,11 +320,11 @@
         
         // 获取设备显示名称
         function getDisplayName(device) {
+            if (device.hostname && device.hostname !== 'Unknown' && device.hostname !== 'unknown') {
+                return `<span title="主机名">${device.hostname}</span>`;
+            }
             if (device.notes) {
                 return `<span title="备注: ${device.notes}">${device.notes}</span>`;
-            }
-            if (device.hostname && device.hostname !== 'Unknown' && device.hostname !== 'unknown') {
-                return device.hostname;
             }
             return `<span class="text-muted">${device.ip}</span>`;
         }
@@ -483,17 +487,19 @@
             
             document.getElementById('mark-device-mac').value = mac;
             document.getElementById('mark-device-type').value = currentType || 'unknown';
+            document.getElementById('mark-device-hostname').value = device?.hostname || '';
             document.getElementById('mark-device-vendor').value = device?.vendor || '';
             document.getElementById('mark-device-notes').value = '';
             
             const modal = new bootstrap.Modal(document.getElementById('mark-device-modal'));
             modal.show();
         }
-
+        
         // 标记设备
         async function markDevice() {
             const mac = document.getElementById('mark-device-mac').value;
             const deviceType = document.getElementById('mark-device-type').value;
+            const hostname = document.getElementById('mark-device-hostname').value;
             const vendor = document.getElementById('mark-device-vendor').value;
             const notes = document.getElementById('mark-device-notes').value;
             
@@ -502,6 +508,7 @@
                     method: 'POST',
                     body: JSON.stringify({
                         device_type: deviceType,
+                        hostname: hostname,
                         vendor: vendor,
                         notes: notes
                     })

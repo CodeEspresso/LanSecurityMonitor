@@ -24,10 +24,7 @@ class BarkNotifier:
         self.server = config.get('BARK_SERVER', 'https://api.day.app')
         
         # 密钥从环境变量读取（安全）
-        if secure_config:
-            self.key = secure_config.get('BARK_KEY', '', sensitive=True)
-        else:
-            self.key = config.get('BARK_KEY', '', sensitive=True)
+        self.key = self._get_key()
         
         if not self.key:
             self.logger.warning("Bark密钥未配置，Bark通知将不可用")
@@ -43,6 +40,12 @@ class BarkNotifier:
         
         # 通知冷却记录
         self.notification_history = {}
+    
+    def _get_key(self):
+        """获取密钥（优先从secure_config获取）"""
+        if self.secure_config:
+            return self.secure_config.get('BARK_KEY', '')
+        return self.config.get('BARK_KEY', '')
     
     def send_alert(self, title: str, message: str, severity: str = 'medium', device: Optional[Dict] = None, is_threat: bool = False) -> bool:
         """发送告警通知

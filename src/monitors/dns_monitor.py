@@ -120,7 +120,7 @@ class AdGuardClient:
         
         try:
             response = self.session.get(
-                f"{self.base_url}/control/log",
+                f"{self.base_url}/control/querylog",
                 params={'limit': limit},
                 timeout=30,
                 verify=False
@@ -167,6 +167,7 @@ class DGADetector:
         self.enabled = config.get_bool('ENABLE_DGA_DETECTION', True)
         self.method = config.get('DGA_DETECTION_METHOD', 'pretrained')
         self.threshold = config.get_float('DGA_THRESHOLD', 0.7)
+        self.model_dir = config.get('ML_MODEL_DIR', 'data/ml_models')
         
         self._model = None
         self._vectorizer = None
@@ -194,10 +195,13 @@ class DGADetector:
         try:
             import joblib
             
-            model_path = os.path.join(
-                os.path.dirname(os.path.dirname(__file__)),
-                'models', 'dns_model.pkl'
+            model_dir = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                self.model_dir
             )
+            os.makedirs(model_dir, exist_ok=True)
+            
+            model_path = os.path.join(model_dir, 'dns_model.pkl')
             
             if os.path.exists(model_path):
                 self._model = joblib.load(model_path)
@@ -254,8 +258,8 @@ class DGADetector:
             self._model.fit(X_scaled)
             
             model_dir = os.path.join(
-                os.path.dirname(os.path.dirname(__file__)),
-                'models'
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                self.model_dir
             )
             os.makedirs(model_dir, exist_ok=True)
             

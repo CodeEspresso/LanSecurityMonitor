@@ -572,6 +572,86 @@ class WebApp:
                 logger.error(f"保存自动封禁设置失败: {str(e)}")
                 return jsonify({'success': False, 'message': str(e)}), 500
         
+        @self.app.route('/api/settings/dns-detection', methods=['GET'])
+        @login_required
+        def api_get_dns_detection_settings():
+            """获取DNS检测设置"""
+            try:
+                enable_dga_detection = self.config.get_bool('ENABLE_DGA_DETECTION', True)
+                enable_dns_tunnel_detection = self.config.get_bool('ENABLE_DNS_TUNNEL_DETECTION', False)
+                dga_detection_method = self.config.get('DGA_DETECTION_METHOD', 'pretrained')
+                dga_threshold = self.config.get_float('DGA_THRESHOLD', 0.7)
+                dns_tunnel_qps_threshold = self.config.get_int('DNS_TUNNEL_QPS_THRESHOLD', 50)
+                
+                return jsonify({
+                    'success': True,
+                    'settings': {
+                        'enable_dga_detection': enable_dga_detection,
+                        'enable_dns_tunnel_detection': enable_dns_tunnel_detection,
+                        'dga_detection_method': dga_detection_method,
+                        'dga_threshold': dga_threshold,
+                        'dns_tunnel_qps_threshold': dns_tunnel_qps_threshold
+                    }
+                })
+            except Exception as e:
+                logger.error(f"获取DNS检测设置失败: {str(e)}")
+                return jsonify({'success': False, 'message': str(e)}), 500
+        
+        @self.app.route('/api/settings/dns-detection', methods=['POST'])
+        @login_required
+        def api_save_dns_detection_settings():
+            """保存DNS检测设置"""
+            try:
+                data = request.get_json()
+                settings = data.get('settings', {})
+                
+                config_file = self.config.config_file
+                
+                config_lines = []
+                if os.path.exists(config_file):
+                    with open(config_file, 'r', encoding='utf-8') as f:
+                        config_lines = f.readlines()
+                
+                settings_to_save = {
+                    'ENABLE_DGA_DETECTION': str(settings.get('enable_dga_detection', True)).lower(),
+                    'ENABLE_DNS_TUNNEL_DETECTION': str(settings.get('enable_dns_tunnel_detection', False)).lower(),
+                    'DGA_DETECTION_METHOD': settings.get('dga_detection_method', 'pretrained'),
+                    'DGA_THRESHOLD': str(settings.get('dga_threshold', 0.7)),
+                    'DNS_TUNNEL_QPS_THRESHOLD': str(settings.get('dns_tunnel_qps_threshold', 50))
+                }
+                
+                existing_keys = set()
+                new_lines = []
+                for line in config_lines:
+                    stripped = line.strip()
+                    key_found = False
+                    for key in settings_to_save:
+                        if stripped.startswith(f'{key}='):
+                            new_lines.append(f'{key}={settings_to_save[key]}\n')
+                            existing_keys.add(key)
+                            key_found = True
+                            break
+                    if not key_found:
+                        new_lines.append(line)
+                
+                for key, value in settings_to_save.items():
+                    if key not in existing_keys:
+                        new_lines.append(f'{key}={value}\n')
+                
+                with open(config_file, 'w', encoding='utf-8') as f:
+                    f.writelines(new_lines)
+                
+                self.config._load_config()
+                
+                logger.info(f"DNS检测设置已更新: {settings_to_save}")
+                return jsonify({
+                    'success': True,
+                    'message': 'DNS检测设置已保存'
+                })
+            except Exception as e:
+                logger.error(f"保存DNS检测设置失败: {str(e)}")
+                return jsonify({'success': False, 'message': str(e)}), 500
+        
         # ==================== 系统状态API ====================
         
         @self.app.route('/api/system/status')

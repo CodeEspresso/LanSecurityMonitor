@@ -53,7 +53,15 @@ config/config.env.local
 *.env
 !.env.example
 
+# Deploy scripts (sensitive - use deploy.conf for config)
+sync_to_nas.sh
+deploy.conf
+
 # Temporary files
 *.tmp
 *.bak
 *.new
+
+# Test files
+test_*.py
+*_test.py
